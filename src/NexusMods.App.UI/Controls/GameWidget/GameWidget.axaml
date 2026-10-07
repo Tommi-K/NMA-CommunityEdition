@@ -18,6 +18,18 @@
     </Design.DataContext>
 
     <Border Width="140" x:Name="GameWidgetBorder">
+
+        <Border.ContextFlyout>
+            <MenuFlyout>
+                <MenuItem x:Name="OpenGameFolderMenuItem"
+                          Header="Open game folder">
+                    <MenuItem.Icon>
+                        <icons:UnifiedIcon Value="{x:Static icons:IconValues.FolderOpen}" />
+                    </MenuItem.Icon>
+                </MenuItem>
+            </MenuFlyout>
+        </Border.ContextFlyout>
+
         
         <Grid RowDefinitions="Auto,Auto,Auto">
             

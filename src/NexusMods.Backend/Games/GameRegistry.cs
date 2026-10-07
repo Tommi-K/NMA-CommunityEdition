@@ -60,10 +60,11 @@ internal class GameRegistry : IGameRegistry
 
                             if (_logger.IsEnabled(LogLevel.Information))
                             {
-                                var locatorIds = installation.LocatorResult.LocatorIds
+                                // Manually added installations have no locator IDs, and a
+                                // seedless Aggregate throws on an empty sequence.
+                                var locatorIds = string.Join(", ", installation.LocatorResult.LocatorIds
                                     .Select(x => x.Value)
-                                    .Order(StringComparer.OrdinalIgnoreCase)
-                                    .Aggregate((a,b) => $"{a}, {b}");
+                                    .Order(StringComparer.OrdinalIgnoreCase));
 
                                 _logger.LogInformation("Found game installation for '{Game}' installed using '{Store}' at '{Path}' with locator IDs {LocatorIds}", installation.Game.DisplayName, installation.LocatorResult.Store, installation.LocatorResult.Path, locatorIds);
                             }

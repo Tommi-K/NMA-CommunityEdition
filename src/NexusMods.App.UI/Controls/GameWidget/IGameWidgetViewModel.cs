@@ -18,6 +18,11 @@ public interface IGameWidgetViewModel : IViewModelInterface
     public ReactiveCommand<Unit, Unit> AddGameCommand { get; set; }
     public ReactiveCommand<Unit, Unit> ViewGameCommand { get; set; }
     public ReactiveCommand<Unit, Unit> RemoveAllLoadoutsCommand { get; set; }
+
+    /// <summary>
+    /// Opens this installation's folder in the system file manager.
+    /// </summary>
+    public ReactiveCommand<Unit, Unit> OpenGameFolderCommand { get; }
     public IObservable<bool> IsManagedObservable { get; set; }
     public GameWidgetState State { get; set; }
 }

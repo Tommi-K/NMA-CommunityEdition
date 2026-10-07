@@ -5,6 +5,7 @@ using Avalonia.Media.Imaging;
 using Microsoft.Extensions.Logging;
 using NexusMods.Abstractions.Games.FileHashes;
 using NexusMods.App.UI.Resources;
+using NexusMods.Sdk;
 using NexusMods.Sdk.Games;
 using NexusMods.Sdk.Settings;
 using NexusMods.UI.Sdk;
@@ -18,13 +19,18 @@ public class GameWidgetViewModel : AViewModel<IGameWidgetViewModel>, IGameWidget
 {
     private readonly ILogger<GameWidgetViewModel> _logger;
 
-    public GameWidgetViewModel(ILogger<GameWidgetViewModel> logger, ISettingsManager settingsManager, IFileHashesService fileHashesService)
+    public GameWidgetViewModel(ILogger<GameWidgetViewModel> logger, ISettingsManager settingsManager, IFileHashesService fileHashesService, IOSInterop osInterop)
     {
         _logger = logger;
 
         AddGameCommand = ReactiveCommand.Create(() => { });
         ViewGameCommand = ReactiveCommand.Create(() => { });
         RemoveAllLoadoutsCommand = ReactiveCommand.Create(() => { });
+
+        OpenGameFolderCommand = ReactiveCommand.Create(
+            () => OpenGameFolder(osInterop),
+            canExecute: this.WhenAnyValue(vm => vm.Installation).Select(installation => installation is not null)
+        );
 
         _image = this
             .WhenAnyValue(vm => vm.Installation)
@@ -82,6 +88,21 @@ public class GameWidgetViewModel : AViewModel<IGameWidgetViewModel>, IGameWidget
         );
     }
 
+    private void OpenGameFolder(IOSInterop osInterop)
+    {
+        var installation = Installation;
+        if (installation is null) return;
+
+        var path = installation.LocatorResult.Path;
+        if (!path.DirectoryExists())
+        {
+            _logger.LogWarning("Game folder `{Path}` for {Game} no longer exists", path, installation.Game.DisplayName);
+            return;
+        }
+
+        osInterop.OpenDirectory(path);
+    }
+
     private async Task<Bitmap?> LoadImage(GameInstallation? source)
     {
         if (source is null) return null;
@@ -130,6 +151,8 @@ public class GameWidgetViewModel : AViewModel<IGameWidgetViewModel>, IGameWidget
 
     private readonly ObservableAsPropertyHelper<Bitmap> _image;
     public Bitmap Image => _image.Value;
+
+    public ReactiveCommand<Unit, Unit> OpenGameFolderCommand { get; }
 
     [Reactive] public ReactiveCommand<Unit, Unit> AddGameCommand { get; set; }
 
