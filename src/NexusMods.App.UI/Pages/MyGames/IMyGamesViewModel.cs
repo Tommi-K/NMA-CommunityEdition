@@ -12,6 +12,11 @@ namespace NexusMods.App.UI.Pages.MyGames;
 public interface IMyGamesViewModel : IPageViewModelInterface
 {
     public ReactiveCommand<Unit, Unit> OpenRoadmapCommand { get; }
+
+    /// <summary>
+    /// Adds a game the locators didn't find, by picking its installation folder.
+    /// </summary>
+    public ReactiveCommand<Unit, Unit> AddGameManuallyCommand { get; }
     
     public ReadOnlyObservableCollection<IGameWidgetViewModel> InstalledGames { get; }
     

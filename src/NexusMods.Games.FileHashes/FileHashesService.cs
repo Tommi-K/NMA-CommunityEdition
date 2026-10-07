@@ -428,6 +428,14 @@ internal sealed class FileHashesService : IFileHashesService, IDisposable, IHost
                 }
             }
         }
+        else if (gameStore == GameStore.ManuallyAdded)
+        {
+            // A manually added installation has no store manifest to resolve vanilla
+            // files from, so yield nothing rather than throwing: managing, syncing and
+            // unmanaging the game all walk through here. Games keep vanilla files out
+            // of the loadout themselves, via IsIgnoredBackupPath.
+            _logger.LogDebug("No vanilla file records available for a manually added installation");
+        }
         else
         {
             throw new NotSupportedException("No way to get game files for: " + gameStore);

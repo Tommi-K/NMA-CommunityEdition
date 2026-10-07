@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Reactive.Disposables;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using DynamicData;
 using DynamicData.Binding;
@@ -66,12 +67,18 @@ public class MyGamesViewModel : APageViewModel<IMyGamesViewModel>, IMyGamesViewM
     private readonly ILoadoutManager _loadoutManager;
     private readonly IGameRegistry _gameRegistry;
 
-    private ReadOnlyObservableCollection<IViewModelInterface> _supportedGames = new([]);
+    private readonly IAvaloniaInterop _avaloniaInterop;
+    private readonly IManuallyAddedGameService _manuallyAddedGameService;
+    private readonly ExperimentalSettings _experimentalSettings;
+
+    private readonly SourceList<GameInstallation> _installationsSource = new();
+    private readonly ObservableCollection<IViewModelInterface> _supportedGamesSource = [];
     private ReadOnlyObservableCollection<IGameWidgetViewModel> _installedGames = new([]);
 
     public ReactiveCommand<Unit, Unit> OpenRoadmapCommand { get; }
+    public ReactiveCommand<Unit, Unit> AddGameManuallyCommand { get; }
     public ReadOnlyObservableCollection<IGameWidgetViewModel> InstalledGames => _installedGames;
-    public ReadOnlyObservableCollection<IViewModelInterface> SupportedGames => _supportedGames;
+    public ReadOnlyObservableCollection<IViewModelInterface> SupportedGames { get; }
 
     public MyGamesViewModel(
         IWindowManager windowManager,
@@ -95,6 +102,11 @@ public class MyGamesViewModel : APageViewModel<IMyGamesViewModel>, IMyGamesViewM
         _connection = conn;
         _loadoutManager = serviceProvider.GetRequiredService<ILoadoutManager>();
         _gameRegistry = gameRegistry;
+        _avaloniaInterop = serviceProvider.GetRequiredService<IAvaloniaInterop>();
+        _manuallyAddedGameService = serviceProvider.GetRequiredService<IManuallyAddedGameService>();
+        _experimentalSettings = experimentalSettings;
+
+        SupportedGames = new ReadOnlyObservableCollection<IViewModelInterface>(_supportedGamesSource);
 
         TabTitle = Language.MyGames;
         TabIcon = IconValues.GamepadOutline;
@@ -109,16 +121,12 @@ public class MyGamesViewModel : APageViewModel<IMyGamesViewModel>, IMyGamesViewM
             osInterop.OpenUri(uri);
         });
 
+        AddGameManuallyCommand = ReactiveCommand.CreateFromTask(AddGameManuallyHandler);
+
         this.WhenActivated(d =>
             {
-                gameRegistry.LocateGameInstallations()
-                    .Where(game =>
-                    {
-                        if (experimentalSettings.EnableAllGames) return true;
-                        return experimentalSettings.SupportedGames.Contains(game.Game.GameId);
-                    })
-                    .ToReadOnlyObservableCollection()
-                    .ToObservableChangeSet()
+                _installationsSource
+                    .Connect()
                     .Transform(installation =>
                         {
                             var vm = _serviceProvider.GetRequiredService<IGameWidgetViewModel>();
@@ -182,45 +190,139 @@ public class MyGamesViewModel : APageViewModel<IMyGamesViewModel>, IMyGamesViewM
                     .SubscribeWithErrorLogging()
                     .DisposeWith(d);
 
-                var supportedGamesAsIGame = serviceProvider
-                    .GetServices<IGameData>()
-                    .Where(game =>
-                    {
-                        if (experimentalSettings.EnableAllGames) return true;
-                        return experimentalSettings.SupportedGames.Contains(game.GameId);
-                    })
-                    .Cast<IGame>()
-                    .Where(game => _installedGames.All(install => install.Installation?.GetGame().GameId != game.GameId)); // Exclude found games
-
-                var miniGameWidgetViewModels = supportedGamesAsIGame
-                    .Select(game =>
-                        {
-                            var vm = _serviceProvider.GetRequiredService<IMiniGameWidgetViewModel>();
-                            vm.Game = game;
-                            vm.Name = game.DisplayName;
-                            // is this supported game installed?
-                            vm.IsFound = _installedGames.Any(install => install.Installation?.GetGame().GameId == game.GameId);
-                            vm.GameInstallations = _installedGames
-                                .Where(install => install.Installation?.GetGame().GameId == game.GameId)
-                                .Select(install => install.Installation)
-                                .NotNull()
-                                .ToArray();
-                            return vm;
-                        }
-                    )
-                    .OrderByDescending(vm => vm.IsFound)
-                    .ToList();
-
-                var comingSoonMiniGameWidget = _serviceProvider.GetRequiredService<IComingSoonMiniGameWidgetViewModel>();
-
-                // create a new ReadOnlyObservableCollection from miniGameWidgetViewModels and comingSoonMiniGameWidget
-                _supportedGames = new ReadOnlyObservableCollection<IViewModelInterface>(
-                    new ObservableCollection<IViewModelInterface>(miniGameWidgetViewModels) {
-                    // Add the coming soon widget to the end of the list
-                    comingSoonMiniGameWidget,
-                });
+                ApplyGames(LocateGames());
             }
         );
+    }
+
+    /// <summary>
+    /// Asks the locators which games are installed, keeping only the ones this build shows.
+    /// </summary>
+    private GameInstallation[] LocateGames()
+    {
+        return _gameRegistry.LocateGameInstallations()
+            .Where(game =>
+            {
+                if (_experimentalSettings.EnableAllGames) return true;
+                return _experimentalSettings.SupportedGames.Contains(game.Game.GameId);
+            })
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Pushes a fresh set of installations into both lists on the page. Must run on the UI thread.
+    /// </summary>
+    private void ApplyGames(GameInstallation[] installations)
+    {
+        _installationsSource.Edit(list =>
+        {
+            list.Clear();
+            list.AddRange(installations);
+        });
+
+        RebuildSupportedGames(installations);
+    }
+
+    private void RebuildSupportedGames(GameInstallation[] installations)
+    {
+        var supportedGamesAsIGame = _serviceProvider
+            .GetServices<IGameData>()
+            .Where(game =>
+            {
+                if (_experimentalSettings.EnableAllGames) return true;
+                return _experimentalSettings.SupportedGames.Contains(game.GameId);
+            })
+            .Cast<IGame>()
+            .Where(game => installations.All(installation => installation.Game.GameId != game.GameId)); // Exclude found games
+
+        var miniGameWidgetViewModels = supportedGamesAsIGame
+            .Select(game =>
+                {
+                    var vm = _serviceProvider.GetRequiredService<IMiniGameWidgetViewModel>();
+                    vm.Game = game;
+                    vm.Name = game.DisplayName;
+                    // is this supported game installed?
+                    vm.IsFound = installations.Any(installation => installation.Game.GameId == game.GameId);
+                    vm.GameInstallations = installations
+                        .Where(installation => installation.Game.GameId == game.GameId)
+                        .ToArray();
+                    return vm;
+                }
+            )
+            .OrderByDescending(vm => vm.IsFound)
+            .ToList();
+
+        var comingSoonMiniGameWidget = _serviceProvider.GetRequiredService<IComingSoonMiniGameWidgetViewModel>();
+
+        // Mutated in place so the view's binding to SupportedGames keeps working.
+        _supportedGamesSource.Clear();
+        foreach (var vm in miniGameWidgetViewModels)
+            _supportedGamesSource.Add(vm);
+
+        // Add the coming soon widget to the end of the list
+        _supportedGamesSource.Add(comingSoonMiniGameWidget);
+    }
+
+    /// <summary>
+    /// Lets the user point the app at a game folder the locators didn't find.
+    /// </summary>
+    private async Task AddGameManuallyHandler()
+    {
+        var folders = await _avaloniaInterop.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            AllowMultiple = false,
+            Title = "Select the game's installation folder",
+        });
+
+        if (folders.Length != 1) return;
+        var folder = folders[0];
+
+        var result = await Task.Run(async () => await _manuallyAddedGameService.AddGame(folder));
+        if (!result.IsSuccess)
+        {
+            await ShowAddGameFailedDialog(result, folder);
+            return;
+        }
+
+        // Locating walks the disk, so keep it off the UI thread.
+        var installations = await Task.Run(LocateGames);
+        ApplyGames(installations);
+
+        Tracking.AddEvent(Events.Game.AddGame, new EventMetadata(name: $"{result.Game.DisplayName} - {GameStore.ManuallyAdded}"));
+    }
+
+    private async Task ShowAddGameFailedDialog(ManualGameAddResult result, AbsolutePath folder)
+    {
+        var markdownVm = _serviceProvider.GetRequiredService<IMarkdownRendererViewModel>();
+        markdownVm.Contents = result.Status switch
+        {
+            ManualGameAddStatus.DirectoryNotFound => $"`{folder}` doesn't exist any more.",
+            ManualGameAddStatus.AlreadyKnown => $"""
+                **{result.Game?.DisplayName}** in `{folder}` has already been added.
+
+                It should be listed under My Games above.
+                """,
+            _ => $"""
+                No supported game was found in `{folder}`.
+
+                Pick the folder that holds the game's executable — the folder itself, not its
+                parent and not the `Data` folder inside it.
+                """,
+        };
+
+        var dialog = DialogFactory.CreateStandardDialog(
+            title: "Couldn't add that folder",
+            new StandardDialogParameters
+            {
+                Markdown = markdownVm,
+            },
+            buttonDefinitions:
+            [
+                new DialogButtonDefinition("OK", ButtonDefinitionId.Accept, ButtonAction.Accept, ButtonStyling.Primary),
+            ]
+        );
+
+        await _windowManager.ShowDialog(dialog, DialogWindowType.Modal);
     }
 
     private OneOf<None, CreateLoadoutJob, UnmanageGameJob> GetJobRunningForGameInstallation(GameInstallation installation)

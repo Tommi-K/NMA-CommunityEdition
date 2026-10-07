@@ -13,6 +13,7 @@ public interface IAvaloniaInterop
     void RegisterClipboard(IClipboard clipboardProvider);
     
     Task<AbsolutePath[]> OpenFilePickerAsync(FilePickerOpenOptions filePickerOpenOptions);
+    Task<AbsolutePath[]> OpenFolderPickerAsync(FolderPickerOpenOptions folderPickerOpenOptions);
     Task SetClipboardTextAsync(string text);
 }
 
@@ -46,6 +47,30 @@ internal class AvaloniaInterop : IAvaloniaInterop
         {
             // Log the exception or handle it as needed
             throw new InvalidOperationException("Failed to set clipboard text.", ex);
+        }
+    }
+
+    public async Task<AbsolutePath[]> OpenFolderPickerAsync(FolderPickerOpenOptions folderPickerOpenOptions)
+    {
+        var storageProvider = _storageProvider;
+        if (storageProvider is null) throw new InvalidOperationException("No storage provider registered!");
+
+        try
+        {
+            var folders = await storageProvider.OpenFolderPickerAsync(folderPickerOpenOptions);
+
+            var paths = folders
+                .Select(folder => folder.TryGetLocalPath())
+                .NotNull()
+                .Select(path => FileSystem.Shared.FromUnsanitizedFullPath(path))
+                .Where(path => path.DirectoryExists())
+                .ToArray();
+
+            return paths;
+        }
+        catch (Exception)
+        {
+            return [];
         }
     }
 

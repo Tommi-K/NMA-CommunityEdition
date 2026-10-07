@@ -39,6 +39,16 @@
                         Description="{x:Static resources:Language.MyGamesView__Page_Description}"
                         Icon="{x:Static icons:IconValues.PictogramGame3D}" />
 
+                    <controls:StandardButton x:Name="AddGameManuallyButton"
+                                             HorizontalAlignment="Left"
+                                             Type="Tertiary"
+                                             Size="Medium"
+                                             Fill="Weak"
+                                             ShowIcon="Left"
+                                             LeftIcon="{x:Static icons:IconValues.FolderOpen}"
+                                             Text="Add game from folder"
+                                             ToolTip.Tip="Point the app at a game folder that wasn't detected automatically" />
+
                     <controls:EmptyState x:Name="DetectedGamesEmptyState"
                                          Margin="0"
                                          HorizontalAlignment="Left">

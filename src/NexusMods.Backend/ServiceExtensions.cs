@@ -73,6 +73,7 @@ public static class ServiceExtensions
             .AddGameInstallMetadataModel()
             .AddSettings<GameLocatorSettings>()
             .AddSingleton<IGameLocator, ManuallyAddedLocator>()
+            .AddSingleton<IManuallyAddedGameService, ManuallyAddedGameService>()
             .AddManuallyAddedGameModel();
     }
 

@@ -13,6 +13,9 @@ public partial class MyGamesView : ReactiveUserControl<IMyGamesViewModel>
 
         this.WhenActivated(d =>
             {
+                this.BindCommand(ViewModel, vm => vm.AddGameManuallyCommand, view => view.AddGameManuallyButton)
+                    .DisposeWith(d);
+
                 this.WhenAnyValue(view => view.ViewModel!.InstalledGames)
                     .BindToView(this, view => view.DetectedGamesItemsControl.ItemsSource)
                     .DisposeWith(d);
