@@ -1,3 +1,8 @@
+using NexusMods.CrossPlatform;
+using Xilium.CefGlue.Common;
+using Xilium.CefGlue;
+using NexusMods.Paths;
+using NexusMods.DataModel;
 using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
@@ -98,6 +103,8 @@ public class Startup
         ReactiveUiExtensions.DefaultLogger = logger;
         IconProvider.Current.Register<MaterialDesignIconProvider>();
 
+        InitialiseEmbeddedBrowser(logger, serviceProvider);
+
         var app = AppBuilder
             .Configure(serviceProvider.GetRequiredService<App>)
             .UsePlatformDetect()
@@ -128,5 +135,42 @@ public class Startup
 
 
         return app;
+    }
+
+    /// <summary>
+    /// Starts the Chromium runtime used by the in-app browser tab.
+    /// </summary>
+    /// <remarks>
+    /// Only called on the UI path, so CLI invocations don't pay for Chromium. Without an
+    /// explicit root cache path CEF warns and falls back to a shared default, which risks
+    /// interfering with the app's own single-process handling.
+    /// </remarks>
+    private static void InitialiseEmbeddedBrowser(Microsoft.Extensions.Logging.ILogger logger, IServiceProvider serviceProvider)
+    {
+        try
+        {
+            var fileSystem = serviceProvider.GetRequiredService<IFileSystem>();
+            var cachePath = DataModelSettings.GetLocalApplicationDataDirectory(fileSystem).Combine("Browser");
+            fileSystem.CreateDirectory(cachePath);
+
+            // Chromium writes its own diagnostics here; a CEF abort kills the process
+            // before anything managed can log, so this file is the only record of why.
+            var logFile = LoggingSettings.GetLogBaseFolder(OSInformation.Shared, fileSystem).Combine("chromium.log");
+
+            CefRuntimeLoader.Initialize(new CefSettings
+            {
+                RootCachePath = cachePath.ToNativeSeparators(OSInformation.Shared),
+                // Keep the Nexus website session across restarts, so signing in to the
+                // in-app browser is a one-off rather than something to redo every launch.
+                PersistSessionCookies = true,
+                LogFile = logFile.ToNativeSeparators(OSInformation.Shared),
+                LogSeverity = CefLogSeverity.Info,
+            });
+        }
+        catch (Exception e)
+        {
+            // Mod pages fall back to the system browser when this fails.
+            logger.LogWarning(e, "Unable to initialise the embedded browser");
+        }
     }
 }

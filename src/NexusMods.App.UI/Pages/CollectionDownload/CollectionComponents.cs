@@ -6,6 +6,7 @@ using NexusMods.App.UI.Extensions;
 using NexusMods.App.UI.Pages.LibraryPage;
 using NexusMods.App.UI.Resources;
 using NexusMods.MnemonicDB.Abstractions.Models;
+using NexusMods.Abstractions.Downloads;
 using NexusMods.Sdk.Jobs;
 using NexusMods.UI.Sdk;
 using R3;
@@ -69,11 +70,46 @@ public static class CollectionComponents
         protected ADownloadAction(
             TEntity downloadEntity,
             Observable<JobStatus> downloadJobStatusObservable,
-            Observable<bool> isDownloadedObservable)
+            Observable<bool> isDownloadedObservable,
+            IDownloadsService? downloadsService = null,
+            Observable<Optional<DownloadInfo>>? downloadInfoObservable = null)
         {
-            _activationDisposable = this.WhenActivated((downloadEntity, downloadJobStatusObservable, isDownloadedObservable), static (self, state, disposables) =>
+            _downloadsService = downloadsService;
+
+            // Only downloads we can resolve to a DownloadInfo report progress and can be
+            // paused or cancelled; the rest keep the plain spinner.
+            HasProgress = downloadsService is not null && downloadInfoObservable is not null;
+            var infoObservable = downloadInfoObservable ?? Observable.Return(Optional<DownloadInfo>.None);
+
+            Progress = infoObservable
+                .Select(static optional => optional.HasValue
+                    ? optional.Value.Progress.AsObservable()
+                    : Observable.Return(Percent.Zero))
+                .Switch()
+                .Select(static percent => percent.Value)
+                .ToReadOnlyBindableReactiveProperty(initialValue: 0.0);
+
+            var downloadInfoStatus = infoObservable
+                .Select(static optional => optional.HasValue
+                    ? optional.Value.Status.AsObservable()
+                    : Observable.Return(JobStatus.None))
+                .Switch();
+
+            CanPause = downloadInfoStatus
+                .Select(static status => status == JobStatus.Running)
+                .ToReadOnlyBindableReactiveProperty(initialValue: false);
+
+            CanResume = downloadInfoStatus
+                .Select(static status => status == JobStatus.Paused)
+                .ToReadOnlyBindableReactiveProperty(initialValue: false);
+
+            CanCancel = downloadInfoStatus
+                .Select(static status => status is JobStatus.Created or JobStatus.Running or JobStatus.Paused)
+                .ToReadOnlyBindableReactiveProperty(initialValue: false);
+
+            _activationDisposable = this.WhenActivated((downloadEntity, downloadJobStatusObservable, isDownloadedObservable, infoObservable), static (self, state, disposables) =>
             {
-                var (_, downloadJobStatusObservable, isDownloadedObservable) = state;
+                var (_, downloadJobStatusObservable, isDownloadedObservable, infoObservable) = state;
 
                 downloadJobStatusObservable.CombineLatest(isDownloadedObservable, static (a, b) => (a, b)).ObserveOnUIThreadDispatcher().Subscribe(self, static (tuple, self) =>
                 {
@@ -82,6 +118,16 @@ public static class CollectionComponents
                     self._downloadStatus.Value = downloadStatus;
                     self._buttonText.Value = self.GetButtonText(isDownloading: downloadStatus == JobStatus.Running, isDownloaded);
                 }).AddTo(disposables);
+
+                // Keep hold of the download the pause/resume/cancel commands act on.
+                infoObservable.ObserveOnUIThreadDispatcher().Subscribe(self, static (optional, self) =>
+                {
+                    self._currentDownload = optional;
+                }).AddTo(disposables);
+
+                self.PauseCommand.Subscribe(self, static (_, self) => self.WithDownload(static (service, info) => service.PauseDownload(info))).AddTo(disposables);
+                self.ResumeCommand.Subscribe(self, static (_, self) => self.WithDownload(static (service, info) => service.ResumeDownload(info))).AddTo(disposables);
+                self.CancelCommand.Subscribe(self, static (_, self) => self.WithDownload(static (service, info) => service.CancelDownload(info))).AddTo(disposables);
             });
 
             CommandDownload = _canDownload.ToReactiveCommand<Unit, TEntity>(_ => downloadEntity);
@@ -98,6 +144,33 @@ public static class CollectionComponents
         public IReadOnlyBindableReactiveProperty<JobStatus> DownloadStatus => _downloadStatus;
 
         public IReadOnlyBindableReactiveProperty<bool> IsDownloading { get; }
+
+        /// <summary>
+        /// Download progress, 0 to 1, for binding to a progress bar.
+        /// </summary>
+        public IReadOnlyBindableReactiveProperty<double> Progress { get; }
+
+        /// <summary>
+        /// Whether this download reports progress and can be paused or cancelled.
+        /// </summary>
+        public bool HasProgress { get; }
+
+        public IReadOnlyBindableReactiveProperty<bool> CanPause { get; }
+        public IReadOnlyBindableReactiveProperty<bool> CanResume { get; }
+        public IReadOnlyBindableReactiveProperty<bool> CanCancel { get; }
+
+        public ReactiveCommand<Unit> PauseCommand { get; } = new();
+        public ReactiveCommand<Unit> ResumeCommand { get; } = new();
+        public ReactiveCommand<Unit> CancelCommand { get; } = new();
+
+        private readonly IDownloadsService? _downloadsService;
+        private Optional<DownloadInfo> _currentDownload;
+
+        private void WithDownload(Action<IDownloadsService, DownloadInfo> action)
+        {
+            if (_downloadsService is null || !_currentDownload.HasValue) return;
+            action(_downloadsService, _currentDownload.Value);
+        }
 
         private readonly BindableReactiveProperty<string> _buttonText = new(value: "");
         public IReadOnlyBindableReactiveProperty<string> ButtonText => _buttonText;
@@ -116,7 +189,7 @@ public static class CollectionComponents
                 _isDisposed = true;
                 if (disposing)
                 {
-                    Disposable.Dispose(_activationDisposable,IsDownloading, CommandDownload, _canDownload, _buttonText, _downloadStatus);
+                    Disposable.Dispose(_activationDisposable, IsDownloading, Progress, CanPause, CanResume, CanCancel, PauseCommand, ResumeCommand, CancelCommand, CommandDownload, _canDownload, _buttonText, _downloadStatus);
                 }
             }
 
@@ -129,8 +202,10 @@ public static class CollectionComponents
         public NexusModsDownloadAction(
             CollectionDownloadNexusMods.ReadOnly downloadEntity,
             Observable<JobStatus> downloadJobStatusObservable,
-            Observable<bool> isDownloadedObservable)
-            : base(downloadEntity, downloadJobStatusObservable, isDownloadedObservable) { }
+            Observable<bool> isDownloadedObservable,
+            IDownloadsService? downloadsService = null,
+            Observable<Optional<DownloadInfo>>? downloadInfoObservable = null)
+            : base(downloadEntity, downloadJobStatusObservable, isDownloadedObservable, downloadsService, downloadInfoObservable) { }
     }
 
     public sealed class ExternalDownloadAction : ADownloadAction<ExternalDownloadAction, CollectionDownloadExternal.ReadOnly>

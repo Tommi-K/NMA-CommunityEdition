@@ -29,13 +29,57 @@
                                                          Type="Tertiary"
                                                          Fill="Weak"
                                                          HorizontalAlignment="Center"
+                                                         MinWidth="100"
                                                          IsVisible="{CompiledBinding !IsDownloading.Value}"
                                                          Text="{CompiledBinding ButtonText.Value}"/>
                                 <StackPanel x:Name="DownloadingStack" 
                                             Orientation="Horizontal" 
+                                            Spacing="4"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
                                             IsVisible="{CompiledBinding IsDownloading.Value}">
-                                    <spinner:Spinner IsVisible="{CompiledBinding IsDownloading.Value}"/>
-                                    <TextBlock Text="{CompiledBinding ButtonText.Value}"/>
+                                    <!-- Downloads that report progress get a bar; the rest keep the spinner -->
+                                    <spinner:Spinner IsVisible="{CompiledBinding !HasProgress}"/>
+                                    <TextBlock Text="{CompiledBinding ButtonText.Value}"
+                                               VerticalAlignment="Center"
+                                               IsVisible="{CompiledBinding !HasProgress}"/>
+
+                                    <!-- Same width as the button it replaces, so the column doesn't jump -->
+                                    <ProgressBar Value="{CompiledBinding Progress.Value}"
+                                                 Classes="DownloadBar"
+                                                 Minimum="0" Maximum="1" Width="100"
+                                                 VerticalAlignment="Center"
+                                                 IsVisible="{CompiledBinding HasProgress}"/>
+
+                                    <controls:StandardButton Command="{CompiledBinding PauseCommand}"
+                                                             IsVisible="{CompiledBinding CanPause.Value}"
+                                                             LeftIcon="{x:Static icons:IconValues.Pause}"
+                                                             ShowIcon="Left"
+                                                             ShowLabel="False"
+                                                             Size="Small"
+                                                             Type="Tertiary"
+                                                             Fill="Weak"
+                                                             ToolTip.Tip="Pause download"/>
+
+                                    <controls:StandardButton Command="{CompiledBinding ResumeCommand}"
+                                                             IsVisible="{CompiledBinding CanResume.Value}"
+                                                             LeftIcon="{x:Static icons:IconValues.PlayArrow}"
+                                                             ShowIcon="Left"
+                                                             ShowLabel="False"
+                                                             Size="Small"
+                                                             Type="Tertiary"
+                                                             Fill="Weak"
+                                                             ToolTip.Tip="Resume download"/>
+
+                                    <controls:StandardButton Command="{CompiledBinding CancelCommand}"
+                                                             IsVisible="{CompiledBinding CanCancel.Value}"
+                                                             LeftIcon="{x:Static icons:IconValues.Close}"
+                                                             ShowIcon="Left"
+                                                             ShowLabel="False"
+                                                             Size="Small"
+                                                             Type="Tertiary"
+                                                             Fill="Weak"
+                                                             ToolTip.Tip="Cancel download"/>
                                 </StackPanel>
                                 
                             </Panel>
