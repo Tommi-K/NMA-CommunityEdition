@@ -74,6 +74,8 @@
     </PackageVersion>
     <PackageVersion Include="NetEscapades.EnumGenerators" Version="1.0.0-beta07" PrivateAssets="all" ExcludeAssets="compile;runtime" />
     <PackageVersion Include="Avalonia" Version="11.3.5" />
+    <!-- Chromium (CEF) based in-app browser, used by the mod page tab -->
+    <PackageVersion Include="CefGlue.Avalonia" Version="120.6099.215" />
     <PackageVersion Include="Avalonia.Controls.DataGrid" Version="11.3.5" />
     <PackageVersion Include="Avalonia.Controls.TreeDataGrid" Version="11.1.1" />
     <PackageVersion Include="Avalonia.Desktop" Version="11.3.5" />

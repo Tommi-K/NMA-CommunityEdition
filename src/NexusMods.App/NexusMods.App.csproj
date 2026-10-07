@@ -93,4 +93,19 @@
             Condition="'$(RuntimeIdentifier)' == 'win-x64' Or '$(RuntimeIdentifier)' == 'win-x86' Or '$(RuntimeIdentifier)' == 'win'">
         <Copy SourceFiles="uninstall.bat" DestinationFolder="$(PublishDir)" />
     </Target>
+
+    <!--
+      CEF's browser subprocess (CefGlueBrowserProcess/) is a self-contained .NET app of its
+      own. PublishSingleFile would otherwise absorb its managed assemblies into our bundle,
+      leaving an apphost with no runtime: every Chromium subprocess then fails to start and
+      the browser aborts with "GPU process isn't usable". Keep that folder as loose files.
+    -->
+    <Target Name="ExcludeCefHelperFromSingleFile" AfterTargets="ComputeResolvedFilesToPublishList">
+        <ItemGroup>
+            <ResolvedFileToPublish Update="@(ResolvedFileToPublish)">
+                <ExcludeFromSingleFile Condition="$([System.String]::Copy('%(RelativePath)').StartsWith('CefGlueBrowserProcess'))">true</ExcludeFromSingleFile>
+            </ResolvedFileToPublish>
+        </ItemGroup>
+    </Target>
+
 </Project>

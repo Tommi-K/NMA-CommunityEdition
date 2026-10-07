@@ -57,6 +57,8 @@ using NexusMods.App.UI.Pages.MyLoadouts;
 using NexusMods.App.UI.Pages.ObservableInfo;
 using NexusMods.App.UI.Pages.Settings;
 using NexusMods.App.UI.Pages.Sorting;
+using NexusMods.App.UI.Pages.Browser;
+using NexusMods.Sdk;
 using NexusMods.App.UI.Pages.TextEdit;
 using NexusMods.App.UI.Settings;
 using NexusMods.App.UI.Windows;
@@ -186,6 +188,8 @@ public static class Services
 
             .AddView<TextEditorPageView, ITextEditorPageViewModel>()
             .AddViewModel<TextEditorPageViewModel, ITextEditorPageViewModel>()
+            .AddView<BrowserPageView, IBrowserPageViewModel>()
+            .AddViewModel<BrowserPageViewModel, IBrowserPageViewModel>()
 
             .AddView<LibraryItemDeleteConfirmationView, ILibraryItemDeleteConfirmationViewModel>()
             .AddViewModel<LibraryItemDeleteConfirmationViewModel, ILibraryItemDeleteConfirmationViewModel>()
@@ -264,6 +268,8 @@ public static class Services
             .AddSingleton<IPageFactory, SettingsPageFactory>()
             .AddSingleton<IPageFactory, ChangelogPageFactory>()
             .AddSingleton<IPageFactory, TextEditorPageFactory>()
+            .AddSingleton<IPageFactory, BrowserPageFactory>()
+            .AddSingleton<IInAppBrowser, InAppBrowser>()
             .AddSingleton<IPageFactory, MyLoadoutsPageFactory>()
             .AddSingleton<IPageFactory, LibraryPageFactory>()
             .AddSingleton<IPageFactory, DownloadsPageFactory>()

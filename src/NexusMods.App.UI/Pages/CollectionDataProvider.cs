@@ -4,6 +4,7 @@ using Avalonia.Media.Imaging;
 using DynamicData;
 using DynamicData.Kernel;
 using Microsoft.Extensions.DependencyInjection;
+using NexusMods.Abstractions.Downloads;
 using NexusMods.Abstractions.Loadouts;
 using NexusMods.Abstractions.NexusModsLibrary.Models;
 using NexusMods.Sdk.Resources;
@@ -32,6 +33,7 @@ public class CollectionDataProvider
 {
     private readonly IConnection _connection;
     private readonly IJobMonitor _jobMonitor;
+    private readonly IDownloadsService _downloadsService;
     private readonly CollectionDownloader _collectionDownloader;
     private readonly IResourceLoader<EntityId, Bitmap> _thumbnailLoader;
 
@@ -39,6 +41,7 @@ public class CollectionDataProvider
     {
         _connection = serviceProvider.GetRequiredService<IConnection>();
         _jobMonitor = serviceProvider.GetRequiredService<IJobMonitor>();
+        _downloadsService = serviceProvider.GetRequiredService<IDownloadsService>();
         _collectionDownloader = serviceProvider.GetRequiredService<CollectionDownloader>();
         _thumbnailLoader = ImagePipelines.GetModPageThumbnailPipeline(serviceProvider);
     }
@@ -118,7 +121,9 @@ public class CollectionDataProvider
             componentFactory: () => new CollectionComponents.NexusModsDownloadAction(
                 downloadEntity: download,
                 downloadJobStatusObservable: downloadJobStatusObservable,
-                isDownloadedObservable: statusObservable.Select(status => status.IsDownloaded())
+                isDownloadedObservable: statusObservable.Select(status => status.IsDownloaded()),
+                downloadsService: _downloadsService,
+                downloadInfoObservable: GetDownloadInfoObservable(download.FileMetadata.Id)
             )
         );
 
@@ -244,6 +249,24 @@ public class CollectionDataProvider
             shouldAddObservable: ShouldAddObservable(downloadEntity, statusObservable, groupObservable).Select(static b => !b),
             componentFactory: componentFactory
         );
+    }
+
+    /// <summary>
+    /// The in-flight download for a given file, if there is one.
+    /// </summary>
+    /// <remarks>
+    /// Taken from <see cref="IDownloadsService"/> rather than the job monitor:
+    /// NexusModsDownloadJob only wraps the inner HTTP job and reports neither progress
+    /// nor pause state, whereas DownloadInfo carries what the Downloads page shows.
+    /// </remarks>
+    private Observable<Optional<DownloadInfo>> GetDownloadInfoObservable(EntityId fileMetadataId)
+    {
+        return _downloadsService.AllDownloads
+            .FilterImmutable(info => info.FileMetadataId.Value == fileMetadataId)
+            .QueryWhenChanged(static query => query.Items.FirstOrOptional(static _ => true))
+            .ToObservable()
+            .Prepend(static () => Optional<DownloadInfo>.None)
+            .ObserveOnUIThreadDispatcher();
     }
 
     private Observable<JobStatus> GetJobStatusObservable<TJobDefinition>(Func<TJobDefinition, bool> predicate)

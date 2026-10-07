@@ -195,7 +195,14 @@ public class CollectionDownloader
         else
         {
             var domain = _mappingCache[download.FileUid.GameId];
-            _osInterop.OpenUri(NexusModsUrlBuilder.GetFileDownloadUri(domain, download.ModUid.ModId, download.FileUid.FileId, useNxmLink: true, campaign: NexusModsUrlBuilder.CampaignCollections));
+            var downloadUri = NexusModsUrlBuilder.GetFileDownloadUri(domain, download.ModUid.ModId, download.FileUid.FileId, useNxmLink: true, campaign: NexusModsUrlBuilder.CampaignCollections);
+
+            // Prefer a tab inside the app; fall back to the system browser when the UI
+            // isn't present or the in-app browser can't open it.
+            var inAppBrowser = _serviceProvider.GetService<IInAppBrowser>();
+            if (inAppBrowser?.TryOpen(downloadUri, download.FileMetadata.Name) == true) return;
+
+            _osInterop.OpenUri(downloadUri);
         }
     }
 

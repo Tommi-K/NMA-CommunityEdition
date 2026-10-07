@@ -55,6 +55,7 @@
     </ItemGroup>
 
     <ItemGroup>
+        <PackageReference Include="CefGlue.Avalonia" />
         <PackageReference Include="Avalonia" />
         <PackageReference Include="Avalonia.AvaloniaEdit" />
         <PackageReference Include="Avalonia.Controls.TreeDataGrid" />
