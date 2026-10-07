@@ -67,6 +67,7 @@ public class MyGamesViewModel : APageViewModel<IMyGamesViewModel>, IMyGamesViewM
     private readonly ILoadoutManager _loadoutManager;
     private readonly IGameRegistry _gameRegistry;
 
+    private readonly ILogger<MyGamesViewModel> _logger;
     private readonly IAvaloniaInterop _avaloniaInterop;
     private readonly IManuallyAddedGameService _manuallyAddedGameService;
     private readonly ExperimentalSettings _experimentalSettings;
@@ -102,6 +103,7 @@ public class MyGamesViewModel : APageViewModel<IMyGamesViewModel>, IMyGamesViewM
         _connection = conn;
         _loadoutManager = serviceProvider.GetRequiredService<ILoadoutManager>();
         _gameRegistry = gameRegistry;
+        _logger = logger;
         _avaloniaInterop = serviceProvider.GetRequiredService<IAvaloniaInterop>();
         _manuallyAddedGameService = serviceProvider.GetRequiredService<IManuallyAddedGameService>();
         _experimentalSettings = experimentalSettings;
@@ -155,8 +157,21 @@ public class MyGamesViewModel : APageViewModel<IMyGamesViewModel>, IMyGamesViewM
                                 if (!result.ShouldRemoveGame) return;
 
                                 vm.State = GameWidgetState.RemovingGame;
-                                await Task.Run(async () => await RemoveGame(installation, shouldDeleteDownloads: result.ShouldDeleteDownloads, filesToDelete, collections));
-                                vm.State = GameWidgetState.DetectedGame;
+                                try
+                                {
+                                    await Task.Run(async () => await RemoveGame(installation, shouldDeleteDownloads: result.ShouldDeleteDownloads, filesToDelete, collections));
+                                }
+                                catch (Exception e)
+                                {
+                                    _logger.LogError(e, "Failed to remove {Game}", installation.Game.DisplayName);
+                                }
+                                finally
+                                {
+                                    // Restore the state even on failure, otherwise the widget is
+                                    // stranded on "Removing..." with no way back. IsManagedObservable
+                                    // corrects this to ManagedGame if the game is in fact still managed.
+                                    vm.State = GameWidgetState.DetectedGame;
+                                }
 
                                 Tracking.AddEvent(Events.Game.RemoveGame, new EventMetadata(name: $"{installation.Game.DisplayName} - {installation.LocatorResult.Store}"));
                             });
@@ -356,8 +371,20 @@ public class MyGamesViewModel : APageViewModel<IMyGamesViewModel>, IMyGamesViewM
         if (GetJobRunningForGameInstallation(installation).IsT1) return;
 
         vm.State = GameWidgetState.AddingGame;
-        var loadout = await Task.Run(async () => await ManageGame(installation));
-        
+
+        Loadout.ReadOnly loadout;
+        try
+        {
+            loadout = await Task.Run(async () => await ManageGame(installation));
+        }
+        catch (Exception e)
+        {
+            // Same reasoning as the removal path: don't strand the widget on "Adding...".
+            _logger.LogError(e, "Failed to add {Game}", installation.Game.DisplayName);
+            vm.State = GameWidgetState.DetectedGame;
+            return;
+        }
+
         // Check if there are external changes
         var changeEntries = await GetExternalChangesItems(loadout);
         vm.State = GameWidgetState.ManagedGame;

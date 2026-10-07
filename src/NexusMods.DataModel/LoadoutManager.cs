@@ -367,6 +367,13 @@ internal partial class LoadoutManager : ILoadoutManager
                 tx.Delete(entry, recursive: false);
             }
 
+            // Drop the recorded install baseline too, so managing the game again
+            // re-captures it from whatever is on disk at that point.
+            foreach (var entry in GameBaselineFile.FindByGame(metadata.Db, metadata))
+            {
+                tx.Delete(entry, recursive: false);
+            }
+
             if (metadata.Contains(GameInstallMetadata.LastSyncedLoadoutId))
                 tx.Retract(metadata, GameInstallMetadata.LastSyncedLoadoutId, metadata.LastSyncedLoadoutId.Value);
             if (metadata.Contains(GameInstallMetadata.LastSyncedLoadoutTransactionId))

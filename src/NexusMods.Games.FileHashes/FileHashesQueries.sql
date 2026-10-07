@@ -82,6 +82,10 @@ WITH
 SELECT files.Loadout, files.File PathId FROM files;
 
 -- gets all the paths and hashes for game files in loadouts
+-- Store manifests are authoritative. When the hashes DB has nothing for a loadout's
+-- build (no GOG build / Steam manifest rows), fall back to the locally recorded
+-- install baseline, otherwise the game's own files look like unknown files that the
+-- synchronizer has to archive wholesale. See GameBaselineFile.
 CREATE MACRO file_hashes.loadout_files(db) AS TABLE
 WITH 
        relations AS (SELECT pathRel.Id, pathRel.Path, hashRel.xxHash3 Hash, hashRel.Size 
@@ -89,9 +93,16 @@ WITH
                   INNER JOIN MDB_hashrelation(DBName=>"hashes") hashRel ON pathRel.Hash = hashRel.Id),
        files AS (SELECT Loadout, PathId FROM file_hashes.gog_loadout_files(db)
               UNION
-              SELECT Loadout, PathId FROM file_hashes.steam_loadout_files(db))
-SELECT files.Loadout, relations.Path, relations.Hash, relations.Size FROM files
-INNER JOIN relations ON files.PathId = relations.Id;
+              SELECT Loadout, PathId FROM file_hashes.steam_loadout_files(db)),
+       store_files AS (SELECT files.Loadout, relations.Path, relations.Hash, relations.Size FROM files
+              INNER JOIN relations ON files.PathId = relations.Id),
+       baseline_files AS (SELECT loadout.Id Loadout, baseline.Path.Item3 Path, baseline.Hash, baseline.Size
+              FROM MDB_GAMEBASELINEFILE(Db=>db) baseline
+              INNER JOIN MDB_LOADOUT(Db=>db) loadout ON loadout.Installation = baseline.Game
+              WHERE loadout.Id NOT IN (SELECT Loadout FROM store_files))
+SELECT Loadout, Path, Hash, Size FROM store_files
+UNION ALL
+SELECT Loadout, Path, Hash, Size FROM baseline_files;
 
        
        

@@ -608,10 +608,7 @@ public partial class ALoadoutSynchronizer : ILoadoutSynchronizer
     private async ValueTask<Loadout.ReadOnly> ReprocessOverrides(Loadout.ReadOnly loadout)
     {
         // Make a lookup set of the new files based on current locator IDs
-        var versionFiles = _fileHashService
-            .GetGameFiles((loadout.Installation.Store, loadout.LocatorIds.ToArray()))
-            .Select(file => file.Path)
-            .ToHashSet();
+        var versionFiles = GameFilePaths(loadout);
 
         // Find all files in the overrides that match a path in the new files
         var toDelete = from grp in LoadoutItem.FindByLoadout(loadout.Db, loadout).OfTypeLoadoutItemGroup().OfTypeLoadoutOverridesGroup()
@@ -1392,7 +1389,97 @@ public partial class ALoadoutSynchronizer : ILoadoutSynchronizer
             await tx.Commit();
         }
 
+        metadata = GameInstallMetadata.Load(Connection.Db, metadata);
+        await EnsureGameBaseline(installation, metadata);
+
         return GameInstallMetadata.Load(Connection.Db, metadata);
+    }
+
+    /// <summary>
+    /// The paths of the files that belong to the game itself, from the file hashes DB
+    /// when it covers this build and from the recorded install baseline when it doesn't.
+    /// </summary>
+    /// <remarks>
+    /// Mirrors the precedence in the <c>file_hashes.loadout_files</c> SQL macro, which
+    /// builds the game layer of the sync tree: manifests win, the baseline stands in
+    /// only when there are none. Keep the two in step.
+    /// </remarks>
+    private HashSet<GamePath> GameFilePaths(Loadout.ReadOnly loadout)
+    {
+        var storePaths = _fileHashService
+            .GetGameFiles((loadout.Installation.Store, loadout.LocatorIds.ToArray()))
+            .Select(file => file.Path)
+            .ToHashSet();
+
+        if (storePaths.Count > 0) return storePaths;
+
+        return GameBaselineFile
+            .FindByGame(loadout.Db, loadout.InstallationId)
+            .Select(file => new GamePath(file.Path.Item2, file.Path.Item3))
+            .ToHashSet();
+    }
+
+    /// <summary>
+    /// Records the game folder's initial contents as the installation's baseline when
+    /// the file hashes DB has no manifest for this build.
+    /// </summary>
+    /// <remarks>
+    /// Without a baseline the synchronizer cannot tell the game's own files from the
+    /// user's, so it treats the whole install as unknown files it must archive. That
+    /// means copying the entire game into the archive store on first sync, which for a
+    /// large game is tens of gigabytes. See <see cref="GameBaselineFile"/>.
+    ///
+    /// Costs nothing extra to compute: the hashes were just written by the reindex.
+    /// </remarks>
+    private async Task EnsureGameBaseline(GameInstallation installation, GameInstallMetadata.ReadOnly metadata)
+    {
+        if (GameBaselineFile.FindByGame(metadata.Db, metadata).Any()) return;
+        // A manifest, when one exists, is authoritative; only stand in for it when the
+        // hashes DB is loaded and still has nothing to say about this build. Bailing out
+        // when the DB isn't ready matters: recording a baseline then would shadow the
+        // real manifests for the lifetime of the install.
+        try
+        {
+            await _fileHashService.GetFileHashesDb();
+
+            var locatorIds = installation.LocatorResult.LocatorIds.ToArray();
+            if (_fileHashService.GetGameFiles((installation.LocatorResult.Store, locatorIds)).Any()) return;
+        }
+        catch (Exception e)
+        {
+            Logger.LogDebug(e, "Unable to check the file hashes DB for {Game}, not recording a baseline", installation.Game.DisplayName);
+            return;
+        }
+
+        // The game layer of the sync tree only describes LocationId.Game, so anything
+        // outside it would be misfiled.
+        var diskState = DiskStateEntry
+            .FindByGame(metadata.Db, metadata)
+            .Where(entry => entry.Path.Item2 == LocationId.Game)
+            .ToArray();
+
+        if (diskState.Length == 0) return;
+
+        using var tx = Connection.BeginTransaction();
+        foreach (var entry in diskState)
+        {
+            _ = new GameBaselineFile.New(tx)
+            {
+                GameId = metadata,
+                Path = entry.Path,
+                Hash = entry.Hash,
+                Size = entry.Size,
+            };
+        }
+
+        await tx.Commit();
+
+        Logger.LogInformation(
+            "No file hashes available for {Game}; recorded {Count} files in `{Path}` as the install baseline",
+            installation.Game.DisplayName,
+            diskState.Length,
+            installation.LocatorResult.Path
+        );
     }
 
     private FrozenDictionary<GamePath, DiskStateEntry.ReadOnly> GetDiskState(GameInstallMetadata.ReadOnly gameInstallMetadata)
