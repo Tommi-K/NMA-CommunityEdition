@@ -75,18 +75,13 @@ public partial class BrowserPageView : ReactiveUserControl<IBrowserPageViewModel
     /// <summary>
     /// Chromium can't resolve our own schemes, so a click on an `nxm://` link surfaces
     /// here as a failed navigation. That is where the download handoff is picked up.
+    /// Whether the tab then closes is the view model's call, since it knows why the tab
+    /// was opened.
     /// </summary>
     private void OnLoadError(object sender, LoadErrorEventArgs e)
     {
         var failedUrl = e.FailedUrl;
-        PostToUi(() =>
-        {
-            if (ViewModel?.TryHandleAppUri(failedUrl) != true) return;
-
-            // The page exists only to get the download started, so get it out of the way
-            // once the handoff has been taken.
-            ViewModel.CloseTab();
-        });
+        PostToUi(() => ViewModel?.TryHandleAppUri(failedUrl));
     }
 
     private static void PostToUi(Action action)

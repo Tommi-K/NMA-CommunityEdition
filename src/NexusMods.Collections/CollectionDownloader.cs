@@ -198,9 +198,10 @@ public class CollectionDownloader
             var downloadUri = NexusModsUrlBuilder.GetFileDownloadUri(domain, download.ModUid.ModId, download.FileUid.FileId, useNxmLink: true, campaign: NexusModsUrlBuilder.CampaignCollections);
 
             // Prefer a tab inside the app; fall back to the system browser when the UI
-            // isn't present or the in-app browser can't open it.
+            // isn't present or the in-app browser can't open it. This tab is only a means
+            // of starting the download, so it closes itself once the handoff lands.
             var inAppBrowser = _serviceProvider.GetService<IInAppBrowser>();
-            if (inAppBrowser?.TryOpen(downloadUri, download.FileMetadata.Name) == true) return;
+            if (inAppBrowser?.TryOpen(downloadUri, download.FileMetadata.Name, closeAfterDownload: true) == true) return;
 
             _osInterop.OpenUri(downloadUri);
         }

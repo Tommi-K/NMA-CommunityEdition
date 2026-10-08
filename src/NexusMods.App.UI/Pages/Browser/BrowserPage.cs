@@ -20,6 +20,14 @@ public record BrowserPageContext : IPageFactoryContext
     /// Title to show on the tab until the page reports its own.
     /// </summary>
     public string? InitialTitle { get; init; }
+
+    /// <summary>
+    /// Whether this tab should close itself once a download handoff has been taken.
+    /// Only set for tabs opened purely to start a download; a tab the user is browsing
+    /// in stays put. Defaults to false, which is also what older persisted workspaces
+    /// deserialize to.
+    /// </summary>
+    public bool CloseAfterDownload { get; init; }
 }
 
 [UsedImplicitly]

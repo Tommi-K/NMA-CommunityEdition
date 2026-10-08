@@ -90,10 +90,15 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
             }
         });
 
+        // A tab opened by a "Download" button exists only to get the download started, so
+        // get it out of the way now that the handoff has been taken. A tab the user opened
+        // to browse in stays open: they are still reading the page they downloaded from.
+        if (Context?.CloseAfterDownload == true) CloseTab();
+
         return true;
     }
 
-    public void CloseTab()
+    private void CloseTab()
     {
         Dispatcher.UIThread.Post(() =>
         {

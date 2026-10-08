@@ -150,8 +150,15 @@ public class Startup
         try
         {
             var fileSystem = serviceProvider.GetRequiredService<IFileSystem>();
-            var cachePath = DataModelSettings.GetLocalApplicationDataDirectory(fileSystem).Combine("Browser");
-            fileSystem.CreateDirectory(cachePath);
+            var rootCachePath = DataModelSettings.GetLocalApplicationDataDirectory(fileSystem).Combine("Browser");
+
+            // CachePath is what actually makes a profile persistent. When it is empty CEF
+            // creates every browser in incognito mode, keeps cookies in memory only, and
+            // the Nexus sign-in is gone on the next launch no matter what
+            // PersistSessionCookies says. It has to be RootCachePath or a child of it.
+            var profileCachePath = rootCachePath.Combine("Default");
+            fileSystem.CreateDirectory(rootCachePath);
+            fileSystem.CreateDirectory(profileCachePath);
 
             // Chromium writes its own diagnostics here; a CEF abort kills the process
             // before anything managed can log, so this file is the only record of why.
@@ -159,9 +166,12 @@ public class Startup
 
             CefRuntimeLoader.Initialize(new CefSettings
             {
-                RootCachePath = cachePath.ToNativeSeparators(OSInformation.Shared),
+                RootCachePath = rootCachePath.ToNativeSeparators(OSInformation.Shared),
+                CachePath = profileCachePath.ToNativeSeparators(OSInformation.Shared),
                 // Keep the Nexus website session across restarts, so signing in to the
                 // in-app browser is a one-off rather than something to redo every launch.
+                // Covers the cookies Nexus sets without an expiry date; the ones with an
+                // expiry date persist on the strength of CachePath alone.
                 PersistSessionCookies = true,
                 LogFile = logFile.ToNativeSeparators(OSInformation.Shared),
                 LogSeverity = CefLogSeverity.Info,

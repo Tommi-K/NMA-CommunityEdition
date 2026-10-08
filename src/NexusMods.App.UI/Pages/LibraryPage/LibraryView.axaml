@@ -129,6 +129,15 @@
                         <!-- static button group -->
                         <ItemsControl>
                             <controls:StandardButton
+                                x:Name="BrowseModsInAppButton"
+                                Text="{x:Static resources:Language.FileOriginsPage_BrowseModsNexusMods}"
+                                Type="Tertiary"
+                                Size="Toolbar"
+                                Fill="None"
+                                ShowIcon="Left"
+                                LeftIcon="{x:Static icons:IconValues.NexusColor}"
+                                ToolTip.Tip="{x:Static resources:Language.FileOriginsPage_BrowseModsNexusMods_ToolTip}" />
+                            <controls:StandardButton
                                 Text="Add"
                                 Type="Tertiary"
                                 Size="Toolbar"

@@ -28,16 +28,11 @@ public interface IBrowserPageViewModel : IPageViewModelInterface
 
     /// <summary>
     /// Handles a URL the embedded browser can't navigate to itself, such as an
-    /// <c>nxm://</c> download handoff.
+    /// <c>nxm://</c> download handoff. Also closes the tab afterwards when it was opened
+    /// only to start a download; see <see cref="BrowserPageContext.CloseAfterDownload"/>.
     /// </summary>
     /// <returns>
     /// True when the app took the URL, in which case the browser should cancel the navigation.
     /// </returns>
     public bool TryHandleAppUri(string url);
-
-    /// <summary>
-    /// Closes this tab. Used once a download handoff has been taken, since the page has
-    /// then served its purpose.
-    /// </summary>
-    public void CloseTab();
 }

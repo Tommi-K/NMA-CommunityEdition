@@ -23,7 +23,7 @@ internal sealed class InAppBrowser : IInAppBrowser
         _windowManager = windowManager;
     }
 
-    public bool TryOpen(Uri uri, string? title = null)
+    public bool TryOpen(Uri uri, string? title = null, bool closeAfterDownload = false)
     {
         try
         {
@@ -38,6 +38,7 @@ internal sealed class InAppBrowser : IInAppBrowser
                     {
                         Uri = uri,
                         InitialTitle = title,
+                        CloseAfterDownload = closeAfterDownload,
                     },
                 };
 

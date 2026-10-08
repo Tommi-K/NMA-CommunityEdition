@@ -73,6 +73,7 @@ public class LibraryViewModel : APageViewModel<ILibraryViewModel>, ILibraryViewM
 
     public ReactiveCommand<Unit> OpenNexusModsCommand { get; }
     public ReactiveCommand<Unit> OpenNexusModsCollectionsCommand { get; }
+    public ReactiveCommand<Unit> BrowseNexusModsInAppCommand { get; }
 
     [Reactive] public int SelectionCount { get; private set; }
     
@@ -241,6 +242,20 @@ public class LibraryViewModel : APageViewModel<ILibraryViewModel>, ILibraryViewM
         {
             var gameDomain = _gameIdMappingCache[game.NexusModsGameId.Value];
             var gameUri = NexusModsUrlBuilder.GetBrowseCollectionsUri(gameDomain);
+            osInterop.OpenUri(gameUri);
+        });
+
+        BrowseNexusModsInAppCommand = new ReactiveCommand<Unit>(execute: _ =>
+        {
+            var gameDomain = _gameIdMappingCache[game.NexusModsGameId.Value];
+            var gameUri = NexusModsUrlBuilder.GetGameUri(gameDomain);
+
+            // Resolved optionally and per invocation, the same way CollectionDownloader
+            // does it, so the page still opens somewhere if the in-app browser is missing
+            // or Chromium failed to start.
+            var inAppBrowser = serviceProvider.GetService<IInAppBrowser>();
+            if (inAppBrowser?.TryOpen(gameUri, game.DisplayName) == true) return;
+
             osInterop.OpenUri(gameUri);
         });
 

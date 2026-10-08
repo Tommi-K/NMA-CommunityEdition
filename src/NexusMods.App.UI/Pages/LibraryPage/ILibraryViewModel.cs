@@ -36,6 +36,13 @@ public interface ILibraryViewModel : IPageViewModelInterface
     ReactiveCommand<Unit> OpenFilePickerCommand { get; }
     ReactiveCommand<Unit> OpenNexusModsCommand { get; }
     ReactiveCommand<Unit> OpenNexusModsCollectionsCommand { get; }
+
+    /// <summary>
+    /// Opens the game's Nexus Mods page in a tab inside the app, so a "Mod Manager
+    /// Download" on that page hands straight back to the library instead of going out
+    /// to the system browser.
+    /// </summary>
+    ReactiveCommand<Unit> BrowseNexusModsInAppCommand { get; }
     
     IStorageProvider? StorageProvider { get; set; }
 }

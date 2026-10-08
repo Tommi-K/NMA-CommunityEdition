@@ -1351,6 +1351,24 @@ namespace NexusMods.App.UI.Resources {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Browse Mods.
+        /// </summary>
+        public static string FileOriginsPage_BrowseModsNexusMods {
+            get {
+                return ResourceManager.GetString("FileOriginsPage_BrowseModsNexusMods", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Browse Nexus Mods in a tab inside the app, so downloads go straight to your library.
+        /// </summary>
+        public static string FileOriginsPage_BrowseModsNexusMods_ToolTip {
+            get {
+                return ResourceManager.GetString("FileOriginsPage_BrowseModsNexusMods_ToolTip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Check Nexus Mods for available mod file updates.
         /// </summary>
         public static string FileOriginsPage_CheckForUpdates_ToolTip {

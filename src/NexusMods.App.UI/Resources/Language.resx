@@ -565,6 +565,12 @@
     <data name="FileOriginsPage_BrowseCollectionsNexusMods" xml:space="preserve">
         <value>Browse Collections</value>
     </data>
+    <data name="FileOriginsPage_BrowseModsNexusMods" xml:space="preserve">
+        <value>Browse Mods</value>
+    </data>
+    <data name="FileOriginsPage_BrowseModsNexusMods_ToolTip" xml:space="preserve">
+        <value>Browse Nexus Mods in a tab inside the app, so downloads go straight to your library</value>
+    </data>
     <data name="FileOriginsPage_ViewButtonText" xml:space="preserve">
         <value>View</value>
     </data>
