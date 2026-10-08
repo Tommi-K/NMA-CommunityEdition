@@ -1,6 +1,7 @@
 using System.Reactive;
 using NexusMods.App.UI.WorkspaceSystem;
 using ReactiveUI;
+using Xilium.CefGlue.Common.Handlers;
 
 namespace NexusMods.App.UI.Pages.Browser;
 
@@ -25,6 +26,12 @@ public interface IBrowserPageViewModel : IPageViewModelInterface
     /// Opens the current address in the system browser instead.
     /// </summary>
     public ReactiveCommand<Unit, Unit> CommandOpenInSystemBrowser { get; }
+
+    /// <summary>
+    /// Handler the embedded browser filters its requests through, dropping the ones
+    /// aimed at known ad and tracker domains.
+    /// </summary>
+    public RequestHandler BrowserRequestHandler { get; }
 
     /// <summary>
     /// Handles a URL the embedded browser can't navigate to itself, such as an

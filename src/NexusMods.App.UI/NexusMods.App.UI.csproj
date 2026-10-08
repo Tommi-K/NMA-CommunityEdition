@@ -821,6 +821,12 @@
     </ItemGroup>
 
     <ItemGroup>
+        <!-- Domain rules for the in-app browser's ad/tracker filter, read at runtime
+             by AdBlocker via GetManifestResourceStream. -->
+        <EmbeddedResource Include="Pages\Browser\AdBlockList.txt" />
+    </ItemGroup>
+
+    <ItemGroup>
         <EmbeddedResource Update="Resources\Language.resx">
             <Generator>PublicResXFileCodeGenerator</Generator>
             <LastGenOutput>Language.Designer.cs</LastGenOutput>

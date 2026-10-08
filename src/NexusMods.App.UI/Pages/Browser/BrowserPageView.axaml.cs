@@ -54,6 +54,10 @@ public partial class BrowserPageView : ReactiveUserControl<IBrowserPageViewModel
         if (_browser is not null) return _browser;
 
         _browser = new AvaloniaCefBrowser();
+
+        // Set before the first navigation so nothing slips past the filter.
+        if (ViewModel is not null) _browser.RequestHandler = ViewModel.BrowserRequestHandler;
+
         BrowserHost.Child = _browser;
         return _browser;
     }

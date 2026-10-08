@@ -10,6 +10,7 @@ using NexusMods.App.UI.WorkspaceSystem;
 using NexusMods.CLI.Types;
 using NexusMods.Sdk;
 using NexusMods.UI.Sdk.Icons;
+using Xilium.CefGlue.Common.Handlers;
 using ReactiveUI;
 using ReactiveUI.Fody.Helpers;
 
@@ -28,6 +29,8 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
 
     public ReactiveCommand<Unit, Unit> CommandOpenInSystemBrowser { get; }
 
+    public RequestHandler BrowserRequestHandler { get; }
+
     public BrowserPageViewModel(
         ILogger<BrowserPageViewModel> logger,
         IWindowManager windowManager,
@@ -37,6 +40,10 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
         _logger = logger;
         _osInterop = osInterop;
         _protocolHandlers = serviceProvider.GetServices<IIpcProtocolHandler>().ToArray();
+
+        // One handler per tab: CefGlue disposes it along with the browser it is attached
+        // to, so it can't be shared. The rules behind it are a shared singleton.
+        BrowserRequestHandler = new AdBlockRequestHandler(serviceProvider.GetRequiredService<AdBlocker>(), logger);
 
         TabTitle = "Mod page";
         TabIcon = IconValues.Nexus;

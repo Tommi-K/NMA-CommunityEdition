@@ -1,0 +1,178 @@
+# Ad and tracker blocklist for the in-app browser.
+#
+# Format, one rule per line:
+#   example.com     block this domain and every subdomain of it
+#   @@example.com   never block this domain (wins over any block rule)
+#   # ...           comment
+#
+# Rules match on domain-label boundaries, so `doubleclick.net` blocks
+# `ads.doubleclick.net` but not `notdoubleclick.net`. Bare TLDs are never matched.
+#
+# Only subresources are filtered. A page the user navigates to is always allowed
+# through, so a blocked rule can never strand them on an error page.
+
+# ---------------------------------------------------------------------------
+# Allowed: anything sign-in, downloads, or Nexus itself depends on.
+# These come first because an allow rule beats every block rule below.
+# ---------------------------------------------------------------------------
+@@nexusmods.com
+@@nexus-cdn.com
+@@nexusmods-cdn.com
+# Cloudflare bot checks and reCAPTCHA gate the login form.
+@@challenges.cloudflare.com
+@@recaptcha.net
+@@www.google.com
+@@gstatic.com
+@@googleapis.com
+# Script/font CDNs used for page chrome.
+@@cdnjs.cloudflare.com
+@@jsdelivr.net
+@@unpkg.com
+# Payment providers, for the Premium upgrade flow.
+@@paypal.com
+@@paypalobjects.com
+@@stripe.com
+
+# ---------------------------------------------------------------------------
+# Google advertising
+# ---------------------------------------------------------------------------
+doubleclick.net
+googlesyndication.com
+googleadservices.com
+googletagservices.com
+adservice.google.com
+adservices.google.com
+2mdn.net
+
+# ---------------------------------------------------------------------------
+# Google analytics and tag management
+# ---------------------------------------------------------------------------
+google-analytics.com
+googletagmanager.com
+analytics.google.com
+
+# ---------------------------------------------------------------------------
+# Ad exchanges, SSPs and DSPs
+# ---------------------------------------------------------------------------
+adnxs.com
+adsrvr.org
+rubiconproject.com
+pubmatic.com
+openx.net
+casalemedia.com
+criteo.com
+criteo.net
+taboola.com
+outbrain.com
+smartadserver.com
+teads.tv
+sharethrough.com
+3lift.com
+triplelift.com
+yieldmo.com
+media.net
+sovrn.com
+gumgum.com
+adform.net
+bidswitch.net
+rlcdn.com
+serving-sys.com
+spotxchange.com
+spotx.tv
+unrulymedia.com
+33across.com
+indexww.com
+districtm.io
+onetag-sys.com
+adtelligent.com
+lijit.com
+contextweb.com
+bidr.io
+mathtag.com
+adroll.com
+amazon-adsystem.com
+adcolony.com
+inmobi.com
+applovin.com
+smaato.net
+mopub.com
+
+# Ad networks commonly seen on gaming sites.
+venatusmedia.com
+playwire.com
+intergient.com
+
+# ---------------------------------------------------------------------------
+# Ad verification and anti-fraud
+# ---------------------------------------------------------------------------
+moatads.com
+adsafeprotected.com
+doubleverify.com
+
+# ---------------------------------------------------------------------------
+# Analytics, session recording and A/B testing
+# ---------------------------------------------------------------------------
+scorecardresearch.com
+quantserve.com
+quantcount.com
+hotjar.com
+hotjar.io
+mouseflow.com
+fullstory.com
+logrocket.com
+logrocket.io
+clarity.ms
+mixpanel.com
+segment.com
+segment.io
+amplitude.com
+heap.io
+heapanalytics.com
+chartbeat.com
+chartbeat.net
+parsely.com
+crazyegg.com
+optimizely.com
+vwo.com
+statcounter.com
+newrelic.com
+nr-data.net
+cloudflareinsights.com
+
+# ---------------------------------------------------------------------------
+# Attribution and mobile install tracking
+# ---------------------------------------------------------------------------
+branch.io
+appsflyer.com
+adjust.com
+kochava.com
+singular.net
+
+# ---------------------------------------------------------------------------
+# Social and search pixels
+# ---------------------------------------------------------------------------
+connect.facebook.net
+ads-twitter.com
+analytics.twitter.com
+px.ads.linkedin.com
+snap.licdn.com
+analytics.tiktok.com
+analytics-sg.tiktok.com
+sc-static.net
+tr.snapchat.com
+bat.bing.com
+mc.yandex.ru
+
+# ---------------------------------------------------------------------------
+# Push-notification and content-recommendation spam
+# ---------------------------------------------------------------------------
+onesignal.com
+pushcrew.com
+addthis.com
+sharethis.com
+zergnet.com
+revcontent.com
+mgid.com
+adsterra.com
+popads.net
+propellerads.com

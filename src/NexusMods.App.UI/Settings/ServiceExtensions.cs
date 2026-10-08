@@ -13,6 +13,7 @@ public static class ServiceExtensions
             .AddSettings<TreeDataGridSortingStateSettings>()
             .AddSettings<AlertSettings>()
             .AddSettings<BehaviorSettings>()
+            .AddSettings<BrowserSettings>()
             .AddSettings<UpdaterSettings>()
             .AddSettings<WelcomeSettings>();
     }
