@@ -30,6 +30,14 @@ public interface IPanelViewModel : IViewModelInterface
     public ReadOnlyObservableCollection<IPanelTabViewModel> Tabs { get; }
 
     /// <summary>
+    /// The same tabs as <see cref="Tabs"/>, but in an order that never changes once a tab
+    /// has been added. Bind tab contents to this rather than to <see cref="Tabs"/>:
+    /// reordering <see cref="Tabs"/> makes the ItemsControl rebuild its containers, which
+    /// would throw away whatever state the page is holding.
+    /// </summary>
+    public ReadOnlyObservableCollection<IPanelTabViewModel> TabContents { get; }
+
+    /// <summary>
     /// Gets the command for closing this panel.
     /// </summary>
     public ReactiveCommand<Unit, PanelId> CloseCommand { get; }
@@ -95,6 +103,16 @@ public interface IPanelViewModel : IViewModelInterface
     /// </summary>
     /// <param name="id"></param>
     public void SelectTab(PanelTabId id);
+
+    /// <summary>
+    /// Moves the tab with the given <paramref name="id"/> to <paramref name="destinationIndex"/>
+    /// among this panel's tabs, which is how drag-to-reorder is applied.
+    /// </summary>
+    /// <remarks>
+    /// Out-of-range indices are clamped, and an unknown id is ignored, so a drag that ends
+    /// somewhere unexpected is a no-op rather than an error.
+    /// </remarks>
+    public void MoveTab(PanelTabId id, int destinationIndex);
 
     /// <summary>
     /// Transforms the current state of the panel into a serializable data format.

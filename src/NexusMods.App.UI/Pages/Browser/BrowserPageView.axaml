@@ -14,20 +14,55 @@
     <Grid RowDefinitions="Auto, *">
 
         <Border Grid.Row="0" Classes="Toolbar">
-            <StackPanel Orientation="Horizontal" Spacing="8">
-                <TextBlock x:Name="AddressText"
+            <Grid ColumnDefinitions="Auto, *, Auto">
+
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4">
+                    <controls:StandardButton x:Name="BackButton"
+                                             Size="Small"
+                                             Type="Tertiary"
+                                             Fill="None"
+                                             ShowIcon="Left"
+                                             ShowLabel="False"
+                                             LeftIcon="{x:Static icons:IconValues.ArrowBack}"
+                                             Text="Back"
+                                             ToolTip.Tip="Back" />
+
+                    <controls:StandardButton x:Name="ForwardButton"
+                                             Size="Small"
+                                             Type="Tertiary"
+                                             Fill="None"
+                                             ShowIcon="Left"
+                                             ShowLabel="False"
+                                             LeftIcon="{x:Static icons:IconValues.ArrowForward}"
+                                             Text="Forward"
+                                             ToolTip.Tip="Forward" />
+
+                    <controls:StandardButton x:Name="ReloadButton"
+                                             Size="Small"
+                                             Type="Tertiary"
+                                             Fill="None"
+                                             ShowIcon="Left"
+                                             ShowLabel="False"
+                                             LeftIcon="{x:Static icons:IconValues.Refresh}"
+                                             Text="Reload"
+                                             ToolTip.Tip="Reload" />
+                </StackPanel>
+
+                <TextBlock Grid.Column="1"
+                           x:Name="AddressText"
                            VerticalAlignment="Center"
                            TextTrimming="CharacterEllipsis"
-                           MaxWidth="600" />
+                           Margin="8,0" />
 
-                <controls:StandardButton x:Name="OpenInSystemBrowserButton"
+                <controls:StandardButton Grid.Column="2"
+                                         x:Name="OpenInSystemBrowserButton"
                                          Size="Small"
                                          Type="Tertiary"
                                          Fill="Weak"
                                          ShowIcon="Left"
                                          LeftIcon="{x:Static icons:IconValues.OpenInNew}"
                                          Text="Open in browser" />
-            </StackPanel>
+            </Grid>
         </Border>
 
         <!-- The Chromium browser is created in code-behind so its lifetime and

@@ -30,13 +30,25 @@ public partial class BrowserPageView : ReactiveUserControl<IBrowserPageViewModel
             browser.AddressChanged += OnAddressChanged;
             browser.TitleChanged += OnTitleChanged;
             browser.LoadError += OnLoadError;
+            browser.LoadingStateChange += OnLoadingStateChange;
 
             Disposable.Create(() =>
             {
                 browser.AddressChanged -= OnAddressChanged;
                 browser.TitleChanged -= OnTitleChanged;
                 browser.LoadError -= OnLoadError;
+                browser.LoadingStateChange -= OnLoadingStateChange;
             }).DisposeWith(d);
+
+            // The commands only signal intent; the browser lives here, so this is where
+            // the navigation actually happens.
+            this.BindCommand(ViewModel, vm => vm.CommandGoBack, view => view.BackButton).DisposeWith(d);
+            this.BindCommand(ViewModel, vm => vm.CommandGoForward, view => view.ForwardButton).DisposeWith(d);
+            this.BindCommand(ViewModel, vm => vm.CommandReload, view => view.ReloadButton).DisposeWith(d);
+
+            ViewModel!.CommandGoBack.Subscribe(_ => browser.GoBack()).DisposeWith(d);
+            ViewModel!.CommandGoForward.Subscribe(_ => browser.GoForward()).DisposeWith(d);
+            ViewModel!.CommandReload.Subscribe(_ => browser.Reload(ignoreCache: false)).DisposeWith(d);
 
             this.WhenAnyValue(view => view.ViewModel!.Address)
                 .Where(static address => !string.IsNullOrWhiteSpace(address))
@@ -75,6 +87,25 @@ public partial class BrowserPageView : ReactiveUserControl<IBrowserPageViewModel
     {
         if (ViewModel is not null) ViewModel.PageTitle = title;
     });
+
+    /// <summary>
+    /// Chromium owns the history, so the back/forward buttons take their enabled state
+    /// from here rather than from anything the app tracks itself.
+    /// </summary>
+    private void OnLoadingStateChange(object sender, LoadingStateChangeEventArgs e)
+    {
+        var canGoBack = e.CanGoBack;
+        var canGoForward = e.CanGoForward;
+        var isLoading = e.IsLoading;
+
+        PostToUi(() =>
+        {
+            if (ViewModel is null) return;
+            ViewModel.CanGoBack = canGoBack;
+            ViewModel.CanGoForward = canGoForward;
+            ViewModel.IsLoading = isLoading;
+        });
+    }
 
     /// <summary>
     /// Chromium can't resolve our own schemes, so a click on an `nxm://` link surfaces

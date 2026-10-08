@@ -23,9 +23,43 @@ public interface IBrowserPageViewModel : IPageViewModelInterface
     public string PageTitle { get; set; }
 
     /// <summary>
+    /// Whether the page has somewhere to go back to.
+    /// </summary>
+    public bool CanGoBack { get; set; }
+
+    /// <summary>
+    /// Whether the page has somewhere to go forward to.
+    /// </summary>
+    public bool CanGoForward { get; set; }
+
+    /// <summary>
+    /// Whether the page is still loading.
+    /// </summary>
+    public bool IsLoading { get; set; }
+
+    /// <summary>
     /// Opens the current address in the system browser instead.
     /// </summary>
     public ReactiveCommand<Unit, Unit> CommandOpenInSystemBrowser { get; }
+
+    // The three commands below carry no behaviour of their own: only the view holds the
+    // Chromium instance, so it subscribes to them and drives the navigation. Keeping them
+    // here is what lets the buttons' enabled state stay bound to the view model.
+
+    /// <summary>
+    /// Signals that the embedded browser should go back one page.
+    /// </summary>
+    public ReactiveCommand<Unit, Unit> CommandGoBack { get; }
+
+    /// <summary>
+    /// Signals that the embedded browser should go forward one page.
+    /// </summary>
+    public ReactiveCommand<Unit, Unit> CommandGoForward { get; }
+
+    /// <summary>
+    /// Signals that the embedded browser should reload the current page.
+    /// </summary>
+    public ReactiveCommand<Unit, Unit> CommandReload { get; }
 
     /// <summary>
     /// Handler the embedded browser filters its requests through, dropping the ones

@@ -26,8 +26,14 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
     [Reactive] public BrowserPageContext? Context { get; set; }
     [Reactive] public string Address { get; set; } = "about:blank";
     [Reactive] public string PageTitle { get; set; } = string.Empty;
+    [Reactive] public bool CanGoBack { get; set; }
+    [Reactive] public bool CanGoForward { get; set; }
+    [Reactive] public bool IsLoading { get; set; }
 
     public ReactiveCommand<Unit, Unit> CommandOpenInSystemBrowser { get; }
+    public ReactiveCommand<Unit, Unit> CommandGoBack { get; }
+    public ReactiveCommand<Unit, Unit> CommandGoForward { get; }
+    public ReactiveCommand<Unit, Unit> CommandReload { get; }
 
     public RequestHandler BrowserRequestHandler { get; }
 
@@ -52,6 +58,12 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
         {
             if (Uri.TryCreate(Address, UriKind.Absolute, out var uri)) _osInterop.OpenUri(uri);
         });
+
+        // Empty bodies on purpose: the view performs the navigation, these only say when
+        // it is allowed to. Chromium reports the two flags through LoadingStateChange.
+        CommandGoBack = ReactiveCommand.Create(() => { }, this.WhenAnyValue(vm => vm.CanGoBack));
+        CommandGoForward = ReactiveCommand.Create(() => { }, this.WhenAnyValue(vm => vm.CanGoForward));
+        CommandReload = ReactiveCommand.Create(() => { });
 
         this.WhenActivated(disposables =>
         {

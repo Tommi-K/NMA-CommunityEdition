@@ -31,6 +31,10 @@ public class PanelViewModel : AViewModel<IPanelViewModel>, IPanelViewModel
     private readonly ReadOnlyObservableCollection<IPanelTabViewModel> _tabs;
     public ReadOnlyObservableCollection<IPanelTabViewModel> Tabs => _tabs;
 
+    private readonly ObservableCollection<IPanelTabViewModel> _tabContentsSource = new();
+    private readonly ReadOnlyObservableCollection<IPanelTabViewModel> _tabContents;
+    public ReadOnlyObservableCollection<IPanelTabViewModel> TabContents => _tabContents;
+
     /// <inheritdoc/>
     [Reactive] public Rect LogicalBounds { get; set; }
 
@@ -71,6 +75,12 @@ public class PanelViewModel : AViewModel<IPanelViewModel>, IPanelViewModel
             .Connect()
             .Bind(out _tabs)
             .Subscribe();
+
+        _tabContents = new ReadOnlyObservableCollection<IPanelTabViewModel>(_tabContentsSource);
+
+        _tabsList
+            .Connect()
+            .SubscribeWithErrorLogging(_ => SyncTabContents());
 
         this.WhenAnyValue(vm => vm.SelectedTabId)
             .Select(selectedTabId => Tabs.FirstOrDefault(tab => tab.Id == selectedTabId))
@@ -211,6 +221,53 @@ public class PanelViewModel : AViewModel<IPanelViewModel>, IPanelViewModel
     {
         if (_tabsList.Items.Any(tab => tab.Id == tabId))
             SelectedTabId = tabId;
+    }
+
+    /// <summary>
+    /// Brings <see cref="TabContents"/> in line with the tabs that currently exist, while
+    /// leaving the entries that are already there where they are.
+    /// </summary>
+    /// <remarks>
+    /// The contents are stacked in a single grid cell with only the selected tab visible,
+    /// so their order carries no meaning. Keeping that order fixed is what lets a tab be
+    /// reordered without its page being torn down: the contents list never reports a move,
+    /// so the ItemsControl never rebuilds the view, and an embedded browser keeps the page
+    /// it had. Membership is matched on identity rather than index for the same reason.
+    /// </remarks>
+    private void SyncTabContents()
+    {
+        var current = _tabsList.Items.ToArray();
+
+        for (var i = _tabContentsSource.Count - 1; i >= 0; i--)
+        {
+            if (!current.Contains(_tabContentsSource[i])) _tabContentsSource.RemoveAt(i);
+        }
+
+        foreach (var tab in current)
+        {
+            if (!_tabContentsSource.Contains(tab)) _tabContentsSource.Add(tab);
+        }
+    }
+
+    public void MoveTab(PanelTabId id, int destinationIndex)
+    {
+        _tabsList.Edit(updater =>
+        {
+            var currentIndex = -1;
+            for (var i = 0; i < updater.Count; i++)
+            {
+                if (updater[i].Id != id) continue;
+                currentIndex = i;
+                break;
+            }
+
+            if (currentIndex < 0) return;
+
+            var target = Math.Clamp(destinationIndex, 0, updater.Count - 1);
+            if (target == currentIndex) return;
+
+            updater.Move(currentIndex, target);
+        });
     }
 
     public void CloseTab(PanelTabId id)
