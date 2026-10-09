@@ -7,7 +7,7 @@ using NexusMods.Abstractions.GuidedInstallers;
 namespace NexusMods.Games.FOMOD.CoreDelegates;
 
 [UsedImplicitly]
-public sealed class InstallerDelegates : ICoreDelegates
+public sealed class InstallerDelegates : ICoreDelegates, IDisposable
 {
     public IContextDelegates context { get; }
     public IIniDelegates ini => throw new NotImplementedException();
@@ -15,6 +15,11 @@ public sealed class InstallerDelegates : ICoreDelegates
 
     public IUIDelegates ui => UiDelegates;
     public UiDelegates UiDelegates;
+
+    /// <summary>
+    /// Tears down the UI delegates, which closes the installer window and frees its scope if one was opened.
+    /// </summary>
+    public void Dispose() => UiDelegates.Dispose();
 
     public InstallerDelegates(
         ILoggerFactory loggerFactory,

@@ -24,7 +24,7 @@ namespace NexusMods.Games.FOMOD;
 
 public class FomodXmlInstaller : ALibraryArchiveInstaller
 {
-    private readonly ICoreDelegates _delegates;
+    private readonly ILoggerFactory _loggerFactory;
     private readonly XmlScriptType _scriptType = new();
     private readonly ILogger<FomodXmlInstaller> _logger;
     private readonly GamePath _fomodInstallationPath;
@@ -51,7 +51,7 @@ public class FomodXmlInstaller : ALibraryArchiveInstaller
         _logger = logger;
         _fomodInstallationPath = fomodInstallationPath;
 
-        _delegates = serviceProvider.GetRequiredService<ICoreDelegates>();
+        _loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
         _temporaryFileManager = serviceProvider.GetRequiredService<TemporaryFileManager>();
         _fileSystem = serviceProvider.GetRequiredService<IFileSystem>();
         _fileStore = serviceProvider.GetRequiredService<IFileStore>();
@@ -100,41 +100,56 @@ public class FomodXmlInstaller : ALibraryArchiveInstaller
         // NOTE(erri120): We're loading the script manually, otherwise the FOMOD library will load the script from the file system
         await mod.InitializeWithoutLoadingScript();
 
-        // NOTE(erri120): The FOMOD library calls us, so this is the only way we can pass data along.
-        var installerDelegates = _delegates as InstallerDelegates;
-        if (installerDelegates is not null)
+        // The delegates hold the state of a single install: the callbacks the FOMOD library hands us, the
+        // archive we read images and files from, and the installer window. Collections install their mods
+        // in parallel, so these have to be per-install - sharing one set lets concurrent installs overwrite
+        // each other's callbacks, read each other's archives, and take over each other's installer window.
+        var delegates = CreateDelegates(options);
+
+        try
         {
-            if (options is not null)
-            {
-                // NOTE(halgari) The support for passing in presets to the installer is utterly broken. So we're going to
-                // something different: we will create a new guided installer that will simply emit the user choices based on the
-                // provided options.
-                var installer = new PresetGuidedInstaller(options);
-                installerDelegates.UiDelegates = new UiDelegates(ServiceProvider.GetRequiredService<ILogger<UiDelegates>>(), installer);
-            }
+            // NOTE(erri120): The FOMOD library calls us, so this is the only way we can pass data along.
+            if (delegates is InstallerDelegates installerDelegates)
+                installerDelegates.UiDelegates.CurrentFomodArchiveFiles = fomodArchiveFiles;
 
-            installerDelegates.UiDelegates.CurrentFomodArchiveFiles = fomodArchiveFiles;
+            var rawScript = await LoadScript(xmlFile.AsLibraryFile().Hash, cancellationToken);
+
+            var executor = _scriptType.CreateExecutor(mod, delegates);
+            var installScript = _scriptType.LoadScript(rawScript, true);
+            FixScript(installScript, fomodArchiveFiles, _logger);
+
+            var instructions = await executor.Execute(installScript, "", null);
+
+            var errors = instructions.Where(instruction => instruction.type == "error").ToArray();
+            if (errors.Length != 0) throw new Exception(string.Join("; ", errors.Select(err => err.source)));
+
+            foreach (var warning in instructions.Where(instruction => instruction.type == "unsupported"))
+                _logger.LogWarning("Installer uses unsupported function: {}", warning.source);
+
+            InstructionsToLoadoutItems(transaction, loadout, loadoutGroup,instructions, fomodArchiveFiles, _fomodInstallationPath);
+            return new Success();
         }
+        finally
+        {
+            // Closes the installer window and releases its scope, so the next install can take its turn.
+            // Nothing else disposes these: the app registers them as transient, and transients resolved
+            // from the root provider are only disposed when the app shuts down. Tests swap in their own
+            // `ICoreDelegates`, which they own, so only our own delegates are disposed here.
+            (delegates as InstallerDelegates)?.Dispose();
+        }
+    }
 
-        var rawScript = await LoadScript(xmlFile.AsLibraryFile().Hash, cancellationToken);
+    /// <summary>
+    /// Builds the delegates for one install.
+    /// </summary>
+    private ICoreDelegates CreateDelegates(FomodOption[]? options)
+    {
+        // NOTE(halgari) The support for passing in presets to the installer is utterly broken. So we're going to
+        // something different: we will create a new guided installer that will simply emit the user choices based on the
+        // provided options.
+        if (options is not null) return new InstallerDelegates(_loggerFactory, new PresetGuidedInstaller(options));
 
-        var executor = _scriptType.CreateExecutor(mod, _delegates);
-        var installScript = _scriptType.LoadScript(rawScript, true);
-        FixScript(installScript, fomodArchiveFiles, _logger);
-
-        var instructions = await executor.Execute(installScript, "", null);
-
-        // NOTE(err120): Reset the previously provided data
-        if (installerDelegates is not null) installerDelegates.UiDelegates.CurrentFomodArchiveFiles = fomodArchiveFiles;
-
-        var errors = instructions.Where(instruction => instruction.type == "error").ToArray();
-        if (errors.Length != 0) throw new Exception(string.Join("; ", errors.Select(err => err.source)));
-
-        foreach (var warning in instructions.Where(instruction => instruction.type == "unsupported"))
-            _logger.LogWarning("Installer uses unsupported function: {}", warning.source);
-
-        InstructionsToLoadoutItems(transaction, loadout, loadoutGroup,instructions, fomodArchiveFiles, _fomodInstallationPath);
-        return new Success();
+        return ServiceProvider.GetRequiredService<ICoreDelegates>();
     }
 
     private async ValueTask<string> LoadScript(Hash hash, CancellationToken cancellationToken = default)

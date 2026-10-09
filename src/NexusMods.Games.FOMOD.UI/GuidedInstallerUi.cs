@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using Avalonia.ReactiveUI;
@@ -14,13 +13,29 @@ namespace NexusMods.Games.FOMOD.UI;
 [UsedImplicitly]
 public sealed class GuidedInstallerUi : IGuidedInstaller
 {
+    /// <summary>
+    /// Only one installer window is on screen at a time.
+    /// </summary>
+    /// <remarks>
+    /// Collections install their mods in parallel, so several installs can reach the point of asking the
+    /// user for input at the same time. Each install has its own installer, so without this they'd all
+    /// put a window on screen at once.
+    /// </remarks>
+    private static readonly SemaphoreSlim WindowGate = new(initialCount: 1, maxCount: 1);
+
     private readonly IServiceProvider _serviceProvider;
     private readonly CompositeDisposable _compositeDisposable;
 
     private IServiceScope? _currentScope;
-    private ReactiveWindow<IGuidedInstallerWindowViewModel>? _window;
+    private GuidedInstallerWindow? _window;
+    private string _windowName = string.Empty;
+    private int _holdsWindowGate;
 
-    private readonly EventWaitHandle _waitHandle = new ManualResetEvent(initialState: false);
+    /// <summary>
+    /// The choice the window is currently waiting on, so closing the window always resolves the install
+    /// instead of leaving it waiting for an answer that can no longer arrive.
+    /// </summary>
+    private TaskCompletionSource<UserChoice>? _pendingChoice;
 
     public GuidedInstallerUi(IServiceProvider serviceProvider)
     {
@@ -30,67 +45,30 @@ public sealed class GuidedInstallerUi : IGuidedInstaller
 
     public void SetupInstaller(string windowName)
     {
-        Debug.Assert(_window is null);
-        Debug.Assert(_currentScope is null);
-        _currentScope = _serviceProvider.CreateScope();
-
-        var windowViewModel = _currentScope.ServiceProvider.GetRequiredService<IGuidedInstallerWindowViewModel>();
-        windowViewModel.WindowName = windowName;
-
-        OnUi((windowViewModel, this), tuple =>
-        {
-            var (innerViewModel, state) = tuple;
-            SetupWindow(innerViewModel, state);
-            state._waitHandle.Set();
-        });
-
-        // NOTE(erri120): We need to wait for the window to be created.
-        // Otherwise, the _window field isn't set when we want to request the
-        // first user choice.
-        _waitHandle.WaitOne(timeout: TimeSpan.FromSeconds(1));
-        _waitHandle.Reset();
-    }
-
-    private static void SetupWindow(
-        IGuidedInstallerWindowViewModel windowViewModel,
-        GuidedInstallerUi state)
-    {
-        state._window = new GuidedInstallerWindow
-        {
-            ViewModel = windowViewModel
-        };
-
-        state._window.Show();
-
-        Observable
-            .FromEventPattern(
-                addHandler => state._window.Closed += addHandler,
-                removeHandler => state._window.Closed -= removeHandler
-            )
-            .SubscribeWithErrorLogging(eventPattern =>
-            {
-                if (eventPattern.Sender is not GuidedInstallerWindow window) return;
-                var tcs = window.ViewModel?.ActiveStepViewModel?.TaskCompletionSource;
-                if (tcs is null) return;
-                tcs.TrySetResult(new UserChoice(new UserChoice.CancelInstallation()));
-            })
-            .DisposeWith(state._compositeDisposable);
+        // NOTE(sewer): The window is created on the first call to RequestUserChoice instead of here.
+        // Scripts can finish without ever asking the user anything, and waiting our turn for the one
+        // window we're allowed to show has to happen without blocking the install.
+        _windowName = windowName;
     }
 
     public void CleanupInstaller()
     {
-        if (_window is not null)
+        var window = _window;
+        _window = null;
+
+        if (window is not null)
         {
-            OnUi(_window, window =>
+            OnUi(window, static w =>
             {
-                if (window.ViewModel is not null) window.ViewModel.ActiveStepViewModel = null;
-                window.Close();
+                if (w.ViewModel is not null) w.ViewModel.ActiveStepViewModel = null;
+                w.Close();
             });
-            _window = null;
         }
 
         _currentScope?.Dispose();
         _currentScope = null;
+
+        ReleaseWindowGate();
     }
 
     public async Task<UserChoice> RequestUserChoice(
@@ -98,18 +76,84 @@ public sealed class GuidedInstallerUi : IGuidedInstaller
         Percent progress,
         CancellationToken cancellationToken)
     {
-        Debug.Assert(_currentScope is not null);
-        Debug.Assert(_window is not null);
+        var window = await EnsureWindow(cancellationToken);
+        var scope = _currentScope!;
 
         var tcs = new TaskCompletionSource<UserChoice>();
+        Interlocked.Exchange(ref _pendingChoice, tcs);
 
-        OnUi((_currentScope, _window, tcs, installationStep, progress), tuple =>
+        try
         {
-            SetupStep(tuple._currentScope, tuple._window, tuple.tcs, tuple.installationStep, tuple.progress);
+            OnUi((scope, window, tcs, installationStep, progress), static tuple =>
+            {
+                SetupStep(tuple.scope, tuple.window, tuple.tcs, tuple.installationStep, tuple.progress);
+            });
+
+            return await tcs.Task;
+        }
+        finally
+        {
+            Interlocked.CompareExchange(ref _pendingChoice, null, tcs);
+        }
+    }
+
+    /// <summary>
+    /// Waits for our turn to show a window, then creates it on the UI thread.
+    /// </summary>
+    private async Task<GuidedInstallerWindow> EnsureWindow(CancellationToken cancellationToken)
+    {
+        if (_window is not null) return _window;
+
+        await WindowGate.WaitAsync(cancellationToken);
+        Interlocked.Exchange(ref _holdsWindowGate, 1);
+
+        _currentScope = _serviceProvider.CreateScope();
+        var windowViewModel = _currentScope.ServiceProvider.GetRequiredService<IGuidedInstallerWindowViewModel>();
+        windowViewModel.WindowName = _windowName;
+
+        // NOTE(erri120): The window has to exist before we can hand it the first step, so we wait for
+        // the UI thread to create it.
+        var created = new TaskCompletionSource<GuidedInstallerWindow>();
+        OnUi((state: this, viewModel: windowViewModel, created), static tuple =>
+        {
+            try
+            {
+                tuple.created.SetResult(tuple.state.SetupWindow(tuple.viewModel));
+            }
+            catch (Exception e)
+            {
+                tuple.created.SetException(e);
+            }
         });
 
-        await tcs.Task;
-        return tcs.Task.Result;
+        _window = await created.Task;
+        return _window;
+    }
+
+    private GuidedInstallerWindow SetupWindow(IGuidedInstallerWindowViewModel windowViewModel)
+    {
+        var window = new GuidedInstallerWindow
+        {
+            ViewModel = windowViewModel,
+        };
+
+        window.Show();
+
+        Observable
+            .FromEventPattern(
+                addHandler => window.Closed += addHandler,
+                removeHandler => window.Closed -= removeHandler
+            )
+            .SubscribeWithErrorLogging(_ =>
+            {
+                // Closing the window is how the user aborts the install, and it may also happen while a
+                // step is on screen for some other reason, so the pending choice always gets an answer.
+                var tcs = Interlocked.Exchange(ref _pendingChoice, null);
+                tcs?.TrySetResult(new UserChoice(new UserChoice.CancelInstallation()));
+            })
+            .DisposeWith(_compositeDisposable);
+
+        return window;
     }
 
     private static void SetupStep(
@@ -129,6 +173,12 @@ public sealed class GuidedInstallerUi : IGuidedInstaller
         activeStepViewModel.Progress = progress;
     }
 
+    private void ReleaseWindowGate()
+    {
+        if (Interlocked.Exchange(ref _holdsWindowGate, 0) == 0) return;
+        WindowGate.Release();
+    }
+
     private static void OnUi<TState>(TState state, Action<TState> action)
     {
         // NOTE: AvaloniaScheduler has to be used to do work on the UI thread
@@ -146,7 +196,10 @@ public sealed class GuidedInstallerUi : IGuidedInstaller
     public void Dispose()
     {
         CleanupInstaller();
-        _waitHandle.Dispose();
+
+        // Nothing is going to answer a step that's still waiting at this point.
+        Interlocked.Exchange(ref _pendingChoice, null)?.TrySetResult(new UserChoice(new UserChoice.CancelInstallation()));
+
         _compositeDisposable.Dispose();
     }
 }
