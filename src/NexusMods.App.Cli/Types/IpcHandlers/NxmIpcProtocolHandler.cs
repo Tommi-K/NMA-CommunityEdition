@@ -70,7 +70,7 @@ public class NxmIpcProtocolHandler : IIpcProtocolHandler
     }
 
     /// <inheritdoc/>
-    public async Task Handle(string url, CancellationToken cancel)
+    public async Task Handle(string url, CancellationToken cancel, ProtocolLinkSource source = ProtocolLinkSource.External)
     {
         var parsed = NXMUrl.Parse(url);
 
@@ -91,10 +91,10 @@ public class NxmIpcProtocolHandler : IIpcProtocolHandler
                 _eventBus.Send(new CliMessages.TestProtocolRegistration(protocolRegistrationTest.Id));
                 break;
             case NXMModUrl modUrl:
-                await HandleModUrl(modUrl, cancel);
+                await HandleModUrl(modUrl, cancel, source);
                 break;
             case NXMCollectionUrl collectionUrl:
-                await HandleCollectionUrl(collectionUrl, cancel);
+                await HandleCollectionUrl(collectionUrl, cancel, source);
                 break;
             default:
                 _logger.LogWarning("Unknown NXM URL type: {Url}", parsed);
@@ -102,7 +102,7 @@ public class NxmIpcProtocolHandler : IIpcProtocolHandler
         }
     }
 
-    private async Task HandleCollectionUrl(NXMCollectionUrl collectionUrl, CancellationToken cancel)
+    private async Task HandleCollectionUrl(NXMCollectionUrl collectionUrl, CancellationToken cancel, ProtocolLinkSource source)
     {
         var isUserLogged = await _loginManager.GetIsUserLoggedInAsync(cancel);
         if (!isUserLogged)
@@ -126,7 +126,7 @@ public class NxmIpcProtocolHandler : IIpcProtocolHandler
         }
                     
         var temporaryFileManager = _serviceProvider.GetRequiredService<TemporaryFileManager>();
-        _eventBus.Send(new CliMessages.CollectionAddStarted());
+        _eventBus.Send(new CliMessages.CollectionAddStarted(source));
 
         try
         {
@@ -228,7 +228,7 @@ public class NxmIpcProtocolHandler : IIpcProtocolHandler
         });
     }
 
-    private async Task HandleModUrl(NXMModUrl modUrl, CancellationToken cancel)
+    private async Task HandleModUrl(NXMModUrl modUrl, CancellationToken cancel, ProtocolLinkSource source)
     {
         var isUserLogged = await _loginManager.GetIsUserLoggedInAsync(cancel);
         if (!isUserLogged)
@@ -260,7 +260,7 @@ public class NxmIpcProtocolHandler : IIpcProtocolHandler
         var library = _serviceProvider.GetRequiredService<ILibraryService>();
         var temporaryFileManager = _serviceProvider.GetRequiredService<TemporaryFileManager>();
 
-        _eventBus.Send(new CliMessages.ModDownloadStarted());
+        _eventBus.Send(new CliMessages.ModDownloadStarted(source));
         
         LibraryFile.ReadOnly? libraryFile = null;
         try
@@ -270,7 +270,7 @@ public class NxmIpcProtocolHandler : IIpcProtocolHandler
 
             libraryFile = await library.AddDownload(downloadJob);
             
-            _eventBus.Send(new CliMessages.ModDownloadSucceeded(libraryFile.Value.AsLibraryItem()));
+            _eventBus.Send(new CliMessages.ModDownloadSucceeded(libraryFile.Value.AsLibraryItem(), source));
         }
         catch (TaskCanceledException)
         {

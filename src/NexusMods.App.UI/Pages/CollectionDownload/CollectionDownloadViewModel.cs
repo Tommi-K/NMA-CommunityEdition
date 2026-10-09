@@ -241,6 +241,23 @@ public sealed class CollectionDownloadViewModel : APageViewModel<ICollectionDown
         IsDownloading = _isDownloadingRequiredItems.CombineLatest(_isDownloadingOptionalItems, static (a, b) => a || b).ToBindableReactiveProperty();
         IsUpdateAvailable = NewestRevisionNumber.Select(static optional => optional.HasValue).ToBindableReactiveProperty();
 
+        // Cancelling the job is enough to stop the run: the wait on each mod's download page
+        // takes the job's token, so the mod in progress gives up its place in the queue, and
+        // the browser session the run holds closes the tab it was driving on its way out.
+        CommandCancelDownload = IsDownloading.ToReactiveCommand<Unit>(
+            execute: _ =>
+            {
+                foreach (var job in jobMonitor.Jobs.ToArray())
+                {
+                    if (job.Definition is not DownloadCollectionJob definition) continue;
+                    if (definition.RevisionMetadata.Id != _revision.Id) continue;
+                    if (!job.Status.IsActive()) continue;
+
+                    jobMonitor.Cancel(job.Id);
+                }
+            }
+        );
+
         CommandUpdateCollection = IsUpdateAvailable.ToReactiveCommand<Unit>(
             executeAsync: async (_, cancellationToken) =>
             {
@@ -515,6 +532,7 @@ public sealed class CollectionDownloadViewModel : APageViewModel<ICollectionDown
     public ReactiveCommand<Unit> CommandInstallRequiredItems { get; }
     public ReactiveCommand<Unit> CommandDownloadOptionalItems { get; }
     public ReactiveCommand<Unit> CommandInstallOptionalItems { get; }
+    public ReactiveCommand<Unit> CommandCancelDownload { get; }
     public ReactiveCommand<Unit> CommandUpdateCollection { get; }
 
     public ReactiveCommand<Unit> CommandViewOnNexusMods { get; }

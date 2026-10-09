@@ -321,7 +321,23 @@ public class CollectionDownloader
             MaxDegreeOfParallelism = maxDegreeOfParallelism,
         };
 
-        await _jobMonitor.Begin<DownloadCollectionJob, R3.Unit>(job);
+        // Without premium every mod is downloaded by driving its page in a tab. Holding a
+        // session open for the whole run is what keeps that to one tab, shown once and then
+        // left alone, instead of a tab opening and stealing the foreground per mod. Disposed
+        // however the run ends, including when it is cancelled, which is what closes the tab.
+        using var downloadSession = _serviceProvider.GetService<IInAppBrowser>()?.BeginDownloadSession();
+
+        try
+        {
+            await _jobMonitor.Begin<DownloadCollectionJob, R3.Unit>(job);
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancelling is something the user asked for, not a failure to report. Whatever
+            // downloaded before they pressed it stays in the library, and the collection can
+            // be downloaded again later, which picks up from what is already there.
+            _logger.LogInformation("Downloading `{CollectionName}/{RevisionNumber}` was cancelled", revisionMetadata.Collection.Slug, revisionMetadata.RevisionNumber);
+        }
     }
 
     /// <summary>

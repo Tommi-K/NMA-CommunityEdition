@@ -107,6 +107,15 @@ public interface ICollectionDownloadViewModel : IPageViewModelInterface
     ReactiveCommand<Unit> CommandInstallRequiredItems { get; }
 
     ReactiveCommand<Unit> CommandDownloadOptionalItems { get; }
+
+    /// <summary>
+    /// Stops a download run that is under way, leaving whatever has already downloaded alone.
+    /// </summary>
+    /// <remarks>
+    /// Without premium a run works through the collection one mod at a time, driving each
+    /// mod's download page in a tab, so it can take a long while and needs a way out.
+    /// </remarks>
+    ReactiveCommand<Unit> CommandCancelDownload { get; }
     ReactiveCommand<Unit> CommandInstallOptionalItems { get; }
 
     ReactiveCommand<Unit> CommandUpdateCollection { get; }

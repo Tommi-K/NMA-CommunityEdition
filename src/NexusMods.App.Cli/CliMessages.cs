@@ -1,5 +1,6 @@
 using NexusMods.Sdk.EventBus;
 using NexusMods.Abstractions.NexusModsLibrary.Models;
+using NexusMods.CLI.Types;
 using NexusMods.Sdk.Library;
 
 namespace NexusMods.CLI;
@@ -12,7 +13,8 @@ public static class CliMessages
     /// <summary>
     /// A new collection is being added to the app.
     /// </summary>
-    public record CollectionAddStarted() : IEventBusMessage;
+    /// <param name="Source">Where the request came from; see <see cref="ProtocolLinkSource"/>.</param>
+    public record CollectionAddStarted(ProtocolLinkSource Source) : IEventBusMessage;
     
     /// <summary>
     /// A new collection was added to the app.
@@ -27,12 +29,15 @@ public static class CliMessages
     /// <summary>
     /// A new mod download was added to the app.
     /// </summary>
-    public record ModDownloadStarted() : IEventBusMessage;
+    /// <param name="Source">Where the request came from; see <see cref="ProtocolLinkSource"/>.</param>
+    public record ModDownloadStarted(ProtocolLinkSource Source) : IEventBusMessage;
     
     /// <summary>
     /// A mod download was successfully completed.
     /// </summary>
-    public record ModDownloadSucceeded(LibraryItem.ReadOnly LibraryItem) : IEventBusMessage;
+    /// <param name="LibraryItem">What was downloaded.</param>
+    /// <param name="Source">Where the request came from; see <see cref="ProtocolLinkSource"/>.</param>
+    public record ModDownloadSucceeded(LibraryItem.ReadOnly LibraryItem, ProtocolLinkSource Source) : IEventBusMessage;
     
     /// <summary>
     /// A mod download failed.

@@ -84,6 +84,13 @@
                 <controls:StandardButton x:Name="ButtonInstallOptionalItems"
                                          Text="{x:Static resources:Language.CollectionDownloadViewModel_InstallOptional}"
                                          Size="Toolbar" />
+                <controls:StandardButton IsVisible="False" x:Name="ButtonCancelDownload"
+                                         Text="{x:Static resources:Language.CollectionDownloadViewModel_CancelDownload}"
+                                         Size="Toolbar"
+                                         Type="Secondary"
+                                         Fill="Weak"
+                                         LeftIcon="{x:Static icons:IconValues.Close}"
+                                         ShowIcon="Left" />
                 <TextBlock x:Name="TextCollectionStatus" />
             </controls:Statusbar>
 

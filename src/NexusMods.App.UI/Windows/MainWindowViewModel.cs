@@ -25,6 +25,7 @@ using NexusMods.App.UI.Resources;
 using NexusMods.App.UI.Settings;
 using NexusMods.App.UI.WorkspaceSystem;
 using NexusMods.CLI;
+using NexusMods.CLI.Types;
 using NexusMods.CrossPlatform;
 using NexusMods.MnemonicDB.Abstractions;
 using NexusMods.Sdk;
@@ -139,10 +140,10 @@ public class MainWindowViewModel : AViewModel<IMainWindowViewModel>, IMainWindow
             eventBus
                 .ObserveMessages<CliMessages.CollectionAddStarted>()
                 .ObserveOnUIThreadDispatcher()
-                .Subscribe(this, static (_, self) =>
+                .Subscribe(this, static (message, self) =>
                 {
-                    using var disposable = self.BringWindowToFront.Execute(System.Reactive.Unit.Default).Subscribe();
-                    
+                    self.BringWindowToFrontFor(message.Source);
+
                     self._notificationService.ShowToast(Language.ToastNotification_Adding_new_Collection_to_Library);
                 })
                 .DisposeWith(d);
@@ -213,8 +214,14 @@ public class MainWindowViewModel : AViewModel<IMainWindowViewModel>, IMainWindow
                 .ObserveOnUIThreadDispatcher()
                 .Subscribe(this, static (message, self) =>
                 {
+                    // A collection downloading without premium sends one of these per mod, and
+                    // its own page already shows how far along it is. Neither the window nor a
+                    // toast is wanted for those: toasts go in a window of their own, above the
+                    // app, so they would land over whatever the user has gone off to do.
+                    if (message.Source is not ProtocolLinkSource.External) return;
+
                     using var _ = self.BringWindowToFront.Execute(System.Reactive.Unit.Default).Subscribe();
-                    
+
                     self._notificationService.ShowToast(Language.ToastNotification_Mod_Download_started);
                 })
                 .DisposeWith(d);
@@ -224,6 +231,9 @@ public class MainWindowViewModel : AViewModel<IMainWindowViewModel>, IMainWindow
                 .ObserveOnUIThreadDispatcher()
                 .Subscribe(this, static (message, self) =>
                 {
+                    // The other half of the per-mod pair; see ModDownloadStarted above.
+                    if (message.Source is not ProtocolLinkSource.External) return;
+
                     self._notificationService.ShowToast(
                         string.Format(Language.ToastNotification_Mod_Download_Completed____0_, message.LibraryItem.Name),
                         ToastNotificationVariant.Success
@@ -346,6 +356,22 @@ public class MainWindowViewModel : AViewModel<IMainWindowViewModel>, IMainWindow
                     Task.Run(() => MessageBoxOkViewModel.Show(provider, title, description, details));
                 }
             );
+    }
+
+    /// <summary>
+    /// Shows the window for a download request, when the request is one that asked for it.
+    /// </summary>
+    /// <remarks>
+    /// A link the user clicked on the website is them asking for the app, so the app shows
+    /// itself. A link the app made for itself is not: a collection downloaded without premium
+    /// hands one over per mod, and taking the foreground each time would make it impossible to
+    /// do anything else while a collection downloads.
+    /// </remarks>
+    private void BringWindowToFrontFor(ProtocolLinkSource source)
+    {
+        if (source is not ProtocolLinkSource.External) return;
+
+        using var _ = BringWindowToFront.Execute(System.Reactive.Unit.Default).Subscribe();
     }
 
     internal void OnClose()

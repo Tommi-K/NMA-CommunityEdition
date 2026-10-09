@@ -874,6 +874,9 @@ To apply changes or launch the game again, please close the game first.</value>
     <data name="CollectionDownloadViewModel_ViewCollection" xml:space="preserve">
         <value>View Installed Collection</value>
     </data>
+    <data name="CollectionDownloadViewModel_CancelDownload" xml:space="preserve">
+        <value>Cancel download</value>
+    </data>
     <data name="CollectionDownloadViewModel_UpdateCollection" xml:space="preserve">
         <value>Update to Revision {0}</value>
     </data>

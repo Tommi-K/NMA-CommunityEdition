@@ -49,6 +49,9 @@ public partial class CollectionDownloadView : ReactiveUserControl<ICollectionDow
                 this.BindCommand(ViewModel, vm => vm.CommandInstallOptionalItems, view => view.ButtonInstallOptionalItems)
                     .DisposeWith(d);
 
+                this.BindCommand(ViewModel, vm => vm.CommandCancelDownload, view => view.ButtonCancelDownload)
+                    .DisposeWith(d);
+
                 this.BindCommand(ViewModel, vm => vm.CommandUpdateCollection, view => view.ButtonUpdateCollection)
                     .DisposeWith(d);
 
@@ -160,21 +163,26 @@ public partial class CollectionDownloadView : ReactiveUserControl<ICollectionDow
                     view => view.ViewModel!.CountDownloadedRequiredItems,
                     view => view.ViewModel!.CountDownloadedOptionalItems,
                     view => view.ViewModel!.IsInstalled.Value,
-                    view => view.ViewModel!.HasInstalledAllOptionalItems.Value
+                    view => view.ViewModel!.HasInstalledAllOptionalItems.Value,
+                    view => view.ViewModel!.IsDownloading.Value
                     )
-                    .CombineLatest(ViewModel!.TreeDataGridAdapter.Filter.AsSystemObservable(), (a, b) => (a.Item1, a.Item2, a.Item3, a.Item4, b))
+                    .CombineLatest(ViewModel!.TreeDataGridAdapter.Filter.AsSystemObservable(), (a, b) => (a.Item1, a.Item2, a.Item3, a.Item4, a.Item5, b))
                     .Subscribe(tuple =>
                     {
-                        var (countDownloadedRequiredItems, countDownloadedOptionalItems, isInstalled, hasInstalledAllOptionals, filter) = tuple;
+                        var (countDownloadedRequiredItems, countDownloadedOptionalItems, isInstalled, hasInstalledAllOptionals, isDownloading, filter) = tuple;
                         var hasDownloadedAllRequiredItems = countDownloadedRequiredItems == ViewModel!.RequiredDownloadsCount;
                         var hasDownloadedAllOptionalItems = countDownloadedOptionalItems == ViewModel!.OptionalDownloadsCount;
                 
                         ButtonViewCollection.IsVisible = isInstalled;
                 
-                        ButtonDownloadRequiredItems.IsVisible = !hasDownloadedAllRequiredItems;
+                        // While a run is going the download buttons can't be pressed anyway,
+                        // so they give up their place to the one button that does something.
+                        ButtonCancelDownload.IsVisible = isDownloading;
+                
+                        ButtonDownloadRequiredItems.IsVisible = !isDownloading && !hasDownloadedAllRequiredItems;
                         ButtonInstallRequiredItems.IsVisible = !isInstalled && hasDownloadedAllRequiredItems;
                 
-                        ButtonDownloadOptionalItems.IsVisible = filter == CollectionDownloadsFilter.OnlyOptional && !hasDownloadedAllOptionalItems;
+                        ButtonDownloadOptionalItems.IsVisible = !isDownloading && filter == CollectionDownloadsFilter.OnlyOptional && !hasDownloadedAllOptionalItems;
                         ButtonInstallOptionalItems.IsVisible = filter == CollectionDownloadsFilter.OnlyOptional && hasDownloadedAllOptionalItems && !hasInstalledAllOptionals;
                     }).DisposeWith(d);
                 

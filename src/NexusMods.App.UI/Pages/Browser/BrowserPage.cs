@@ -45,6 +45,17 @@ public record BrowserPageContext : IPageFactoryContext
     /// older persisted workspaces deserialize to.
     /// </summary>
     public Guid? DownloadRequestId { get; init; }
+
+    /// <summary>
+    /// Whether this is the tab a run of downloads is driven through, rather than a tab
+    /// opened for one download and closed again after it.
+    /// </summary>
+    /// <remarks>
+    /// Such a tab offers itself to <see cref="BrowserDownloadTracker"/> so the downloads
+    /// after the first can be loaded into it instead of each opening a tab of its own.
+    /// Defaults to false, which is also what older persisted workspaces deserialize to.
+    /// </remarks>
+    public bool IsDownloadDriver { get; init; }
 }
 
 [UsedImplicitly]

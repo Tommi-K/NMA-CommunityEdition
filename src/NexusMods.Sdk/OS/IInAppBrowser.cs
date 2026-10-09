@@ -46,6 +46,22 @@ public interface IInAppBrowser
     /// <param name="title">Tab title to use until the page reports its own.</param>
     /// <param name="cancellationToken">Gives up waiting, and the queued place in line with it.</param>
     ValueTask<InAppDownloadOutcome> StartDownload(Uri uri, string? title = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Marks the start of a run of downloads that belong together, such as a collection.
+    /// </summary>
+    /// <remarks>
+    /// Every <see cref="StartDownload"/> inside the session is driven through the same tab,
+    /// which is brought to the front once when it opens and then left where it is. Without
+    /// this each download would open a tab of its own and pull the foreground to it, so a
+    /// collection would spend the whole run yanking tabs about under the user.
+    /// <para/>
+    /// Disposing the returned value ends the session and closes the tab. Sessions nest, so a
+    /// caller does not have to know whether it is already inside one; the tab closes when the
+    /// outermost session ends. A download started outside any session gets a tab of its own,
+    /// closed as soon as its handoff lands.
+    /// </remarks>
+    IDisposable BeginDownloadSession();
 }
 
 /// <summary>

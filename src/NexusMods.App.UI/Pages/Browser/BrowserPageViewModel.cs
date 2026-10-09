@@ -18,7 +18,7 @@ using ReactiveUI.Fody.Helpers;
 namespace NexusMods.App.UI.Pages.Browser;
 
 [UsedImplicitly]
-public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrowserPageViewModel
+public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrowserPageViewModel, IBrowserDownloadDriver
 {
     private readonly ILogger<BrowserPageViewModel> _logger;
     private readonly IOSInterop _osInterop;
@@ -86,6 +86,19 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
                 .Where(static title => !string.IsNullOrWhiteSpace(title))
                 .Subscribe(title => TabTitle = title)
                 .DisposeWith(disposables);
+
+            // A run of downloads loads one page after another into this tab rather than
+            // opening a tab per mod, so it has to be reachable for as long as it is open.
+            //
+            // Only while the download it was opened for is still being waited on, which is
+            // what tells this apart from the same tab restored out of a persisted workspace:
+            // that one is just a page the user left open, and handing a new run to it would
+            // drive a tab that has never been on screen and so has nothing loading in it.
+            if (Context is { IsDownloadDriver: true, DownloadRequestId: { } driverRequestId } && _downloadTracker.IsTracked(driverRequestId))
+            {
+                _downloadTracker.RegisterDriver(this);
+                Disposable.Create(this, static self => self._downloadTracker.UnregisterDriver(self)).DisposeWith(disposables);
+            }
         });
     }
 
@@ -148,7 +161,10 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
         {
             try
             {
-                await handler.Handle(url, CancellationToken.None);
+                // Said to come from inside the app, so handling it doesn't pull the window
+                // in front of whatever the user has gone off to do: a collection downloaded
+                // without premium hands one of these over per mod.
+                await handler.Handle(url, CancellationToken.None, ProtocolLinkSource.InApp);
             }
             catch (Exception e)
             {
@@ -168,6 +184,29 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
 
         return true;
     }
+
+    /// <inheritdoc/>
+    public void DriveDownload(Uri uri, string? title, Guid requestId)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (Context is null) return;
+
+            var isSamePage = string.Equals(Address, uri.ToString(), StringComparison.Ordinal);
+
+            // The request id is what the handoff is reported back under, so the context has
+            // to carry the new one before the page gets a chance to load. Assigning it is
+            // also what moves `Address` on, which is what the view navigates on.
+            Context = Context with { Uri = uri, InitialTitle = title, DownloadRequestId = requestId };
+
+            // The view only navigates when the address actually changes, so a run that comes
+            // back round to a page it has already been on has to be told to load it again.
+            if (isSamePage) CommandReload.Execute(Unit.Default).Subscribe();
+        });
+    }
+
+    /// <inheritdoc/>
+    public void CloseDriverTab() => CloseTab();
 
     private void CloseTab()
     {

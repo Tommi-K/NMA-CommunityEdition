@@ -448,6 +448,15 @@ namespace NexusMods.App.UI.Resources {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Cancel download.
+        /// </summary>
+        public static string CollectionDownloadViewModel_CancelDownload {
+            get {
+                return ResourceManager.GetString("CollectionDownloadViewModel_CancelDownload", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Update to Revision {0}.
         /// </summary>
         public static string CollectionDownloadViewModel_UpdateCollection {

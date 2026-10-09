@@ -164,7 +164,20 @@ public class Startup
             // before anything managed can log, so this file is the only record of why.
             var logFile = LoggingSettings.GetLogBaseFolder(OSInformation.Shared, fileSystem).Combine("chromium.log");
 
-            CefRuntimeLoader.Initialize(new CefSettings
+            // A collection is downloaded by driving each mod's page in one tab, which the
+            // user is free to switch away from while it works. Chromium would then treat
+            // that page as a background tab and throttle its timers to a tick a second,
+            // and to a tick a minute once it had been hidden five minutes -- and the script
+            // that waits out each download countdown runs on a timer, so the downloads
+            // would stop happening the moment the tab stopped being the one on screen.
+            var flags = new[]
+            {
+                new KeyValuePair<string, string>("disable-background-timer-throttling", string.Empty),
+                new KeyValuePair<string, string>("disable-renderer-backgrounding", string.Empty),
+                new KeyValuePair<string, string>("disable-backgrounding-occluded-windows", string.Empty),
+            };
+
+            CefRuntimeLoader.Initialize(flags: flags, settings: new CefSettings
             {
                 RootCachePath = rootCachePath.ToNativeSeparators(OSInformation.Shared),
                 CachePath = profileCachePath.ToNativeSeparators(OSInformation.Shared),
