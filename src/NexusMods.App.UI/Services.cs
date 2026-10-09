@@ -270,6 +270,7 @@ public static class Services
             .AddSingleton<IPageFactory, TextEditorPageFactory>()
             .AddSingleton<IPageFactory, BrowserPageFactory>()
             .AddSingleton<IInAppBrowser, InAppBrowser>()
+            .AddSingleton<BrowserDownloadTracker>()
             .AddSingleton<AdBlocker>()
             .AddSingleton<IPageFactory, MyLoadoutsPageFactory>()
             .AddSingleton<IPageFactory, LibraryPageFactory>()

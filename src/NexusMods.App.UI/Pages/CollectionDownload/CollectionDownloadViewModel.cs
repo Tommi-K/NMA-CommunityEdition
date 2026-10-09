@@ -12,7 +12,6 @@ using NexusMods.Abstractions.Telemetry;
 using NexusMods.App.UI.Controls;
 using NexusMods.App.UI.Controls.MarkdownRenderer;
 using NexusMods.App.UI.Controls.Navigation;
-using NexusMods.App.UI.Dialog.Enums;
 using NexusMods.App.UI.Extensions;
 using NexusMods.App.UI.Overlays;
 using NexusMods.App.UI.Pages.LibraryPage;
@@ -30,7 +29,6 @@ using NexusMods.Sdk;
 using NexusMods.Sdk.Jobs;
 using NexusMods.Sdk.Loadouts;
 using NexusMods.UI.Sdk;
-using NexusMods.UI.Sdk.Dialog;
 using OneOf;
 using R3;
 using ReactiveUI;
@@ -92,6 +90,11 @@ public sealed class CollectionDownloadViewModel : APageViewModel<ICollectionDown
         RequiredDownloadsCount = CollectionDownloader.CountItems(_revision, CollectionDownloader.ItemType.Required);
         OptionalDownloadsCount = CollectionDownloader.CountItems(_revision, CollectionDownloader.ItemType.Optional);
 
+        // True whatever the account: premium downloads through the API, and everyone else
+        // has each mod's download page driven for them in a tab. Neither button carries the
+        // premium badge any more because neither needs premium.
+        CanDownloadAutomatically = true;
+
 
         CommandDownloadRequiredItems = _isDownloadingRequiredItems.CombineLatest(_canDownloadRequiredItems, static (isDownloading, canDownload) => !isDownloading && canDownload)
             .ToReactiveCommand<Unit>(
@@ -99,20 +102,9 @@ public sealed class CollectionDownloadViewModel : APageViewModel<ICollectionDown
                 {
                     if (!await loginManager.EnsureLoggedIn("Download Collection", cancellationToken)) return;
 
-                    if (!loginManager.IsPremium)
-                    {
-                        var premiumCollectionDownloadsDialog = CollectionDialogs.PremiumCollectionDialog();
-
-                        var dialogResult = await windowManager.ShowDialog(premiumCollectionDownloadsDialog, DialogWindowType.Modal);
-
-                        if (dialogResult.ButtonId == ButtonDefinitionId.From("go-premium"))
-                        {
-                            osInterop.OpenUri(NexusModsUrlBuilder.UpgradeToPremiumUri);
-                        }
-
-                        return;
-                    }
-
+                    // No premium check: a free account gets each mod's download page opened
+                    // and started for it, one mod after another, rather than being sent off
+                    // to upgrade.
                     await collectionDownloader.DownloadItems(_revision, itemType: CollectionDownloader.ItemType.Required, db: connection.Db,
                         cancellationToken: cancellationToken
                     );
@@ -125,15 +117,7 @@ public sealed class CollectionDownloadViewModel : APageViewModel<ICollectionDown
             .ToReactiveCommand<Unit>(
                 executeAsync: async (_, cancellationToken) =>
                 {
-                    if (!loginManager.IsPremium)
-                    {
-                        var premiumCollectionDownloadsDialog = CollectionDialogs.PremiumCollectionDialog();
-
-                        var dialogResult = await windowManager.ShowDialog(premiumCollectionDownloadsDialog, DialogWindowType.Modal);
-
-                        if (dialogResult.ButtonId == ButtonDefinitionId.From("go-premium")) osInterop.OpenUri(NexusModsUrlBuilder.UpgradeToPremiumUri);
-                        return;
-                    }
+                    if (!await loginManager.EnsureLoggedIn("Download Collection", cancellationToken)) return;
 
                     await collectionDownloader.DownloadItems(_revision, itemType: CollectionDownloader.ItemType.Optional, db: connection.Db,
                         cancellationToken: cancellationToken
@@ -310,12 +294,6 @@ public sealed class CollectionDownloadViewModel : APageViewModel<ICollectionDown
                     .OffUi()
                     .SelectMany(revision => collectionDownloader.DownloadedItemCountObservable(revision, itemType: CollectionDownloader.ItemType.Optional));
 
-                loginManager.IsPremiumObservable
-                    .Prepend(false)
-                    .OnUI()
-                    .Subscribe(isPremium => CanDownloadAutomatically = isPremium)
-                    .AddTo(disposables);
-
                 var collectionGroupObservable = collectionDownloader.GetCollectionGroupObservable(_revision, _targetLoadout);
                 var isCollectionInstalledObservable = collectionDownloader
                     .IsCollectionInstalledObservable(_revision, collectionGroupObservable)
@@ -393,9 +371,12 @@ public sealed class CollectionDownloadViewModel : APageViewModel<ICollectionDown
                 TreeDataGridAdapter.MessageSubject.SubscribeAwait(
                     onNextAsync: (message, cancellationToken) =>
                     {
-                        return message.Match(
+                        return message.Match<ValueTask>(
                             f0: installMessage => InstallItem(installMessage.DownloadEntity, cancellationToken),
-                            f1: downloadNexusMods => collectionDownloader.Download(downloadNexusMods.DownloadEntity, cancellationToken),
+                            // Whether the download got started is only of interest to a
+                            // caller working through a list of them; here the one row the
+                            // user pressed reports for itself.
+                            f1: async downloadNexusMods => await collectionDownloader.Download(downloadNexusMods.DownloadEntity, cancellationToken),
                             f2: downloadExternal => collectionDownloader.Download(downloadExternal.DownloadEntity, cancellationToken),
                             f3: manualDownloadOpenModal => OpenManualDownloadModal(manualDownloadOpenModal.DownloadEntity)
                         );

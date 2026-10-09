@@ -181,16 +181,22 @@ public class CollectionDownloader
     /// <summary>
     /// Downloads a file from nexus mods for premium users or opens the download page in the browser.
     /// </summary>
-    public async ValueTask Download(CollectionDownloadNexusMods.ReadOnly download, CancellationToken cancellationToken)
+    /// <returns>
+    /// False when no download was started: nobody is logged in, or the download page the
+    /// user was sent to never handed one over. Callers downloading a list of files use this
+    /// to stop once it is clear that nothing is going to download.
+    /// </returns>
+    public async ValueTask<bool> Download(CollectionDownloadNexusMods.ReadOnly download, CancellationToken cancellationToken)
     {
         var userInfo = await _loginManager.GetUserInfoAsync(cancellationToken);
-        if (userInfo is null) return;
+        if (userInfo is null) return false;
 
         if (userInfo.UserRole is UserRole.Premium)
         {
             await using var tempPath = _temporaryFileManager.CreateFile();
             var job = await _nexusModsLibrary.CreateDownloadJob(tempPath, download.FileMetadata, parentRevision: download.AsCollectionDownload().CollectionRevision, cancellationToken: cancellationToken);
             await _libraryService.AddDownload(job);
+            return true;
         }
         else
         {
@@ -201,14 +207,32 @@ public class CollectionDownloader
             // isn't present or the in-app browser can't open it. This tab is only a means
             // of starting the download, so it presses the download button itself and closes
             // once the handoff lands.
+            //
+            // Awaited, which is what lets a whole collection be downloaded without premium:
+            // the in-app browser runs one download page at a time, so the callers above --
+            // a mod each -- queue up and the collection is worked through one mod after
+            // another instead of opening a tab for every mod at once.
             var inAppBrowser = _serviceProvider.GetService<IInAppBrowser>();
-            if (inAppBrowser?.TryOpen(
-                    downloadUri,
-                    download.FileMetadata.Name,
-                    closeAfterDownload: true,
-                    autoStartDownload: true) == true) return;
+            if (inAppBrowser is not null)
+            {
+                var outcome = await inAppBrowser.StartDownload(downloadUri, download.FileMetadata.Name, cancellationToken);
 
+                // Its tab is left on the page either way, so on a page that never handed a
+                // download over the user can still press the button themselves. Opening the
+                // same page in the system browser as well would only be a second copy of it,
+                // and a collection's worth of those would bury them.
+                if (outcome is InAppDownloadOutcome.NotStarted)
+                {
+                    _logger.LogWarning("The download page for `{Name}` did not start a download; its tab has been left open", download.FileMetadata.Name);
+                }
+
+                if (outcome is not InAppDownloadOutcome.Unavailable) return outcome is InAppDownloadOutcome.Started;
+            }
+
+            // Handed to the system browser, where the app can't see what becomes of it. The
+            // page is in front of the user either way, so this counts as started.
             _osInterop.OpenUri(downloadUri);
+            return true;
         }
     }
 
@@ -277,6 +301,16 @@ public class CollectionDownloader
         IDb db,
         CancellationToken cancellationToken = default)
     {
+        // One at a time without premium: those downloads are each a download page driven in
+        // a tab, and the in-app browser runs one of those at a time whatever this says, so
+        // the other workers would only queue up behind it. Keeping the job to one worker is
+        // what keeps the collection in its own order and lets it stop early when the pages
+        // turn out to be producing nothing.
+        var userInfo = await _loginManager.GetUserInfoAsync(cancellationToken);
+        var maxDegreeOfParallelism = userInfo?.UserRole is UserRole.Premium
+            ? _serviceProvider.GetRequiredService<ISettingsManager>().Get<DownloadSettings>().MaxParallelDownloads
+            : 1;
+
         var job = new DownloadCollectionJob
         {
             Downloader = this,
@@ -284,7 +318,7 @@ public class CollectionDownloader
             RevisionMetadata = revisionMetadata,
             Db = db,
             ItemType = itemType,
-            MaxDegreeOfParallelism = _serviceProvider.GetRequiredService<ISettingsManager>().Get<DownloadSettings>().MaxParallelDownloads,
+            MaxDegreeOfParallelism = maxDegreeOfParallelism,
         };
 
         await _jobMonitor.Begin<DownloadCollectionJob, R3.Unit>(job);

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -6,8 +7,10 @@ using NexusMods.Abstractions.GOG;
 using NexusMods.Abstractions.Library;
 using NexusMods.Abstractions.Loadouts;
 using NexusMods.Abstractions.NexusModsLibrary;
+using NexusMods.Abstractions.NexusModsLibrary.Models;
 using NexusMods.Abstractions.NexusWebApi;
 using NexusMods.Abstractions.NexusWebApi.Types;
+using NexusMods.Collections;
 using NexusMods.MnemonicDB.Abstractions;
 using NexusMods.MnemonicDB.Abstractions.IndexSegments;
 using NexusMods.Networking.NexusWebApi;
@@ -38,6 +41,12 @@ public class NxmIpcProtocolHandler : IIpcProtocolHandler
     private readonly IServiceProvider _serviceProvider;
     private readonly IClient _client;
     private readonly IEventBus _eventBus;
+
+    /// <summary>
+    /// Collection revisions this handler has downloads running for, so that the same link
+    /// twice over doesn't ask for the same files twice.
+    /// </summary>
+    private readonly ConcurrentDictionary<CollectionRevisionMetadataId, byte> _downloadingCollections = new();
 
     /// <summary>
     /// constructor
@@ -152,12 +161,71 @@ public class NxmIpcProtocolHandler : IIpcProtocolHandler
             );
 
             _eventBus.Send(new CliMessages.CollectionAddSucceeded(collectionRevision));
+
+            StartDownloadingCollection(collectionRevision);
         }
         catch (Exception e)
         {
             _eventBus.Send(new CliMessages.CollectionAddFailed(new FailureReason.Unknown(e)));
             throw;
         }
+    }
+
+    /// <summary>
+    /// Starts downloading the collection's required files.
+    /// </summary>
+    /// <remarks>
+    /// An <c>nxm://</c> collection link asks for the collection to be downloaded, not just
+    /// to be put in the library, so the files are asked for here rather than waiting for the
+    /// user to press the button on the page that has just opened for them.
+    ///
+    /// Deliberately not awaited: the download is a job, and the job monitor owns it from here
+    /// -- it goes on running, and reporting its progress, whichever caller handed us the link
+    /// and whether or not that caller is still waiting. Without premium a collection is
+    /// downloaded a page at a time and can take the better part of an hour, which is far too
+    /// long to hold a protocol handler open for.
+    /// </remarks>
+    private void StartDownloadingCollection(CollectionRevisionMetadata.ReadOnly revision)
+    {
+        // The same link arriving twice -- a second click, or a page that fires it again --
+        // should not ask for every file a second time. Kept here rather than read off the
+        // job monitor, whose job list is bound for the UI and not safe to walk from the
+        // thread a protocol handler happens to run on.
+        if (!_downloadingCollections.TryAdd(revision.Id, 0))
+        {
+            _logger.LogInformation("`{CollectionName}` is already being downloaded, leaving that to finish", revision.Collection.Name);
+            return;
+        }
+
+        var collectionDownloader = _serviceProvider.GetRequiredService<CollectionDownloader>();
+        var connection = _serviceProvider.GetRequiredService<IConnection>();
+
+        _logger.LogInformation("Downloading the required files of `{CollectionName}` revision {RevisionNumber}", revision.Collection.Name, revision.RevisionNumber);
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await collectionDownloader.DownloadItems(
+                    revision,
+                    itemType: CollectionDownloader.ItemType.Required,
+                    db: connection.Db,
+                    cancellationToken: CancellationToken.None
+                );
+            }
+            catch (OperationCanceledException)
+            {
+                // Cancelled from the jobs view, where it is already reported.
+            }
+            catch (Exception e)
+            {
+                _logger.LogError(e, "Exception while downloading `{CollectionName}` for an nxm link", revision.Collection.Name);
+            }
+            finally
+            {
+                _downloadingCollections.TryRemove(revision.Id, out _);
+            }
+        });
     }
 
     private async Task HandleModUrl(NXMModUrl modUrl, CancellationToken cancel)

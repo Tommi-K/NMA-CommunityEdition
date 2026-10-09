@@ -1,5 +1,6 @@
 using NexusMods.Abstractions.Serialization.ExpressionGenerator;
 using NexusMods.App.UI.Pages;
+using NexusMods.App.UI.Pages.Browser;
 using NexusMods.App.UI.Pages.Changelog;
 using NexusMods.App.UI.Pages.CollectionDownload;
 using NexusMods.App.UI.Pages.DebugControls;
@@ -41,6 +42,10 @@ internal class TypeFinder : ITypeFinder
         typeof(CollectionLoadoutPageContext),
         typeof(ProtocolRegistrationTestPageContext),
         typeof(DownloadsPageContext),
+        // Without this, closing the app with a browser tab open makes the whole saved
+        // workspace fail to load again -- the restore reads every tab in one go, so one
+        // unknown context takes the window's panels and tabs with it.
+        typeof(BrowserPageContext),
 
         // workspace context
         typeof(EmptyContext),

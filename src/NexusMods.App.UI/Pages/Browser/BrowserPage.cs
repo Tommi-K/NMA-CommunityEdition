@@ -2,6 +2,7 @@ using JetBrains.Annotations;
 using Microsoft.Extensions.DependencyInjection;
 using NexusMods.Abstractions.Serialization.Attributes;
 using NexusMods.App.UI.WorkspaceSystem;
+using NexusMods.Sdk;
 
 namespace NexusMods.App.UI.Pages.Browser;
 
@@ -35,6 +36,15 @@ public record BrowserPageContext : IPageFactoryContext
     /// false, which is also what older persisted workspaces deserialize to.
     /// </summary>
     public bool AutoStartDownload { get; init; }
+
+    /// <summary>
+    /// Identifies the one download this tab was opened for, when a caller is waiting on it:
+    /// the tab reports back under this id once the handoff has been taken, which is what
+    /// lets a whole collection be downloaded one mod after another. See
+    /// <see cref="IInAppBrowser.StartDownload"/>. Null for any other tab, which is also what
+    /// older persisted workspaces deserialize to.
+    /// </summary>
+    public Guid? DownloadRequestId { get; init; }
 }
 
 [UsedImplicitly]

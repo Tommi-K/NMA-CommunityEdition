@@ -24,6 +24,7 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
     private readonly IOSInterop _osInterop;
     private readonly IIpcProtocolHandler[] _protocolHandlers;
     private readonly ILoginManager _loginManager;
+    private readonly BrowserDownloadTracker _downloadTracker;
 
     [Reactive] public BrowserPageContext? Context { get; set; }
     [Reactive] public string Address { get; set; } = "about:blank";
@@ -49,6 +50,7 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
         _osInterop = osInterop;
         _protocolHandlers = serviceProvider.GetServices<IIpcProtocolHandler>().ToArray();
         _loginManager = serviceProvider.GetRequiredService<ILoginManager>();
+        _downloadTracker = serviceProvider.GetRequiredService<BrowserDownloadTracker>();
 
         // One handler per tab: CefGlue disposes it along with the browser it is attached
         // to, so it can't be shared. The rules behind it are a shared singleton.
@@ -153,6 +155,11 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
                 _logger.LogError(e, "Failed to handle `{Url}` from the in-app browser", url);
             }
         });
+
+        // A caller that asked for this one download in particular is waiting on it, and the
+        // next mod in the collection it is working through doesn't start until this one is
+        // away. Reported before the tab closes, since closing is what ends the tab's life.
+        if (Context?.DownloadRequestId is { } downloadRequestId) _downloadTracker.ReportHandoff(downloadRequestId);
 
         // A tab opened by a "Download" button exists only to get the download started, so
         // get it out of the way now that the handoff has been taken. A tab the user opened

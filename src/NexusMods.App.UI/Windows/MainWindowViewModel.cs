@@ -186,6 +186,12 @@ public class MainWindowViewModel : AViewModel<IMainWindowViewModel>, IMainWindow
                 {
                     switch (message.Reason)
                     {
+                        case FailureReason.NotLoggedIn:
+                            self._notificationService.ShowToast(
+                                Language.ToastNotification_Download_failed__User_is_not_logged_in,
+                                ToastNotificationVariant.Failure
+                            );
+                            return;
                         case FailureReason.GameNotManaged gameNotManaged:
                             self._notificationService.ShowToast(
                                 string.Format(Language.ToastNotification_Collection_Add_failed___0__is_not_a_managed_game, gameNotManaged.Game),
