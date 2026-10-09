@@ -199,9 +199,14 @@ public class CollectionDownloader
 
             // Prefer a tab inside the app; fall back to the system browser when the UI
             // isn't present or the in-app browser can't open it. This tab is only a means
-            // of starting the download, so it closes itself once the handoff lands.
+            // of starting the download, so it presses the download button itself and closes
+            // once the handoff lands.
             var inAppBrowser = _serviceProvider.GetService<IInAppBrowser>();
-            if (inAppBrowser?.TryOpen(downloadUri, download.FileMetadata.Name, closeAfterDownload: true) == true) return;
+            if (inAppBrowser?.TryOpen(
+                    downloadUri,
+                    download.FileMetadata.Name,
+                    closeAfterDownload: true,
+                    autoStartDownload: true) == true) return;
 
             _osInterop.OpenUri(downloadUri);
         }

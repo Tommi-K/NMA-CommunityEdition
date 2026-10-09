@@ -24,6 +24,10 @@ public interface IInAppBrowser
     /// <c>nxm://</c> handoff has been taken. Leave false for a tab the user is browsing
     /// in, so that downloading a mod doesn't take the page away from them.
     /// </param>
+    /// <param name="autoStartDownload">
+    /// True to press the download button on the page once it loads, instead of leaving it
+    /// to the user. Only meaningful for a page that has one.
+    /// </param>
     /// <returns>False when the page could not be opened, in which case the caller should fall back.</returns>
-    bool TryOpen(Uri uri, string? title = null, bool closeAfterDownload = false);
+    bool TryOpen(Uri uri, string? title = null, bool closeAfterDownload = false, bool autoStartDownload = false);
 }

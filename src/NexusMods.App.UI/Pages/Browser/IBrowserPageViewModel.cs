@@ -68,6 +68,16 @@ public interface IBrowserPageViewModel : IPageViewModelInterface
     public RequestHandler BrowserRequestHandler { get; }
 
     /// <summary>
+    /// The script to run once <paramref name="pageUrl"/> has finished loading, or null when
+    /// there is nothing to do for it.
+    /// </summary>
+    /// <remarks>
+    /// Returns a script only for a tab that was opened to start a download, and only on the
+    /// Nexus Mods page that actually carries a download button.
+    /// </remarks>
+    public string? TryGetPageLoadScript(string pageUrl);
+
+    /// <summary>
     /// Handles a URL the embedded browser can't navigate to itself, such as an
     /// <c>nxm://</c> download handoff. Also closes the tab afterwards when it was opened
     /// only to start a download; see <see cref="BrowserPageContext.CloseAfterDownload"/>.

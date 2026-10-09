@@ -28,6 +28,13 @@ public record BrowserPageContext : IPageFactoryContext
     /// deserialize to.
     /// </summary>
     public bool CloseAfterDownload { get; init; }
+
+    /// <summary>
+    /// Whether the tab should press the download button on the page itself rather than
+    /// waiting for the user to do it. Set for tabs opened by a download action; defaults to
+    /// false, which is also what older persisted workspaces deserialize to.
+    /// </summary>
+    public bool AutoStartDownload { get; init; }
 }
 
 [UsedImplicitly]

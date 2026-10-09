@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NexusMods.App.UI.Windows;
 using NexusMods.App.UI.WorkspaceSystem;
+using NexusMods.Abstractions.NexusWebApi;
 using NexusMods.CLI.Types;
 using NexusMods.Sdk;
 using NexusMods.UI.Sdk.Icons;
@@ -22,6 +23,7 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
     private readonly ILogger<BrowserPageViewModel> _logger;
     private readonly IOSInterop _osInterop;
     private readonly IIpcProtocolHandler[] _protocolHandlers;
+    private readonly ILoginManager _loginManager;
 
     [Reactive] public BrowserPageContext? Context { get; set; }
     [Reactive] public string Address { get; set; } = "about:blank";
@@ -46,6 +48,7 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
         _logger = logger;
         _osInterop = osInterop;
         _protocolHandlers = serviceProvider.GetServices<IIpcProtocolHandler>().ToArray();
+        _loginManager = serviceProvider.GetRequiredService<ILoginManager>();
 
         // One handler per tab: CefGlue disposes it along with the browser it is attached
         // to, so it can't be shared. The rules behind it are a shared singleton.
@@ -82,6 +85,48 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
                 .Subscribe(title => TabTitle = title)
                 .DisposeWith(disposables);
         });
+    }
+
+    public string? TryGetPageLoadScript(string pageUrl)
+    {
+        if (Context?.AutoStartDownload != true) return null;
+
+        // Logged either way: if the page moves itself somewhere without a file in the query
+        // -- a download widget on its own URL, say -- the script is never armed there, and
+        // without this that would look identical to the script running and finding nothing.
+        if (!IsNexusFileDownloadPage(pageUrl))
+        {
+            _logger.LogInformation("Auto-download not armed, no file in the query: {Url}", pageUrl);
+            return null;
+        }
+
+        _logger.LogInformation("Auto-download armed on {Url}", pageUrl);
+
+        // A premium account downloads through the API and never reaches this page, so this
+        // is all but always the slow button. Asking anyway keeps the choice correct rather
+        // than relying on how the page happens to be reached today -- and sending a
+        // non-premium account to the fast button would land them on a purchase page
+        // instead of a download.
+        return AutoDownloadScript.Build(preferFast: _loginManager.IsPremium);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="url"/> is the Nexus Mods page for a specific file, which is
+    /// the only page with a download button to press.
+    /// </summary>
+    private static bool IsNexusFileDownloadPage(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return false;
+
+        if (!uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) &&
+            !uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)) return false;
+
+        // Matched on a label boundary so a lookalike domain can't pass.
+        var host = uri.Host;
+        if (!host.Equals("nexusmods.com", StringComparison.OrdinalIgnoreCase) &&
+            !host.EndsWith(".nexusmods.com", StringComparison.OrdinalIgnoreCase)) return false;
+
+        return uri.Query.Contains("file_id=", StringComparison.OrdinalIgnoreCase);
     }
 
     public bool TryHandleAppUri(string url)
