@@ -212,11 +212,18 @@ public abstract class TreeDataGridAdapter<TModel, TKey> : ReactiveR3Object, ISea
     {
         if (_selectionModel is null) return;
 
+        // Counted off the view the selection model indexes, not the backing list. While a
+        // search is narrowing the rows the two are different lengths, and index `i` means a
+        // different row in each -- so going by the backing list selected the wrong rows and
+        // ran off the end of the short one. Selecting what is on screen is also what "all"
+        // means to someone who has just filtered the list.
+        var visibleRootCount = ((ICollection<TModel>)RootsCollectionChangedView).Count;
+
         _selectionModel.BeginBatchUpdate();
         using (Disposable.Create(() => _selectionModel.EndBatchUpdate()))
         {
             _selectionModel.Clear();
-            for (var i = 0; i < Roots.Count; i++)
+            for (var i = 0; i < visibleRootCount; i++)
             {
                 _selectionModel.Select(new IndexPath(i));
             }

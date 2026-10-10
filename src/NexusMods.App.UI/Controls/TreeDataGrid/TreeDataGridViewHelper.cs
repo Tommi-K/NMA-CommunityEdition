@@ -89,6 +89,23 @@ public static class TreeDataGridViewHelper
                 })
                 .AddTo(disposables);
             
+            // Escape clears the selection, so Ctrl+A can be undone without reaching for the
+            // mouse. Left unhandled when nothing is selected, so that it still reaches the
+            // search box above, which closes an open search on Escape.
+            Observable.FromEventHandler<KeyEventArgs>(
+                addHandler: handler => treeDataGrid.KeyDown += handler,
+                removeHandler: handler => treeDataGrid.KeyDown -= handler)
+                .Where(e => e.e.Key == Key.Escape)
+                .Subscribe((view, getAdapter), static (eventArgs, state) =>
+                {
+                    var adapter = state.getAdapter(state.view.ViewModel!);
+                    if (adapter.SelectedModels.Count == 0) return;
+
+                    adapter.ClearSelection();
+                    eventArgs.e.Handled = true;
+                })
+                .AddTo(disposables);
+
             // Persist treeDataGrid state on deactivation
             Disposable.Create((view, treeDataGrid, getAdapter),
                 static input =>
