@@ -16,6 +16,7 @@ using NexusMods.App.UI.Controls.MiniGameWidget.Standard;
 using NexusMods.App.UI.Controls.Settings.Section;
 using NexusMods.App.UI.Controls.Settings.SettingEntries;
 using NexusMods.App.UI.Controls.Settings.SettingEntries.PathsList;
+using NexusMods.App.UI.Controls.Settings.SettingEntries.TextEntry;
 using NexusMods.App.UI.Controls.Spine;
 using NexusMods.App.UI.Controls.Spine.Buttons.Download;
 using NexusMods.App.UI.Controls.Spine.Buttons.Icon;
@@ -173,6 +174,8 @@ public static class Services
             .AddViewModel<SettingComboBoxViewModel, ISettingComboBoxViewModel>()
             .AddView<SettingPathsControl, ISettingPathsViewModel>()
             .AddViewModel<SettingPathsViewModel, ISettingPathsViewModel>()
+            .AddView<SettingTextEntryControl, ISettingTextEntryViewModel>()
+            .AddViewModel<SettingTextEntryViewModel, ISettingTextEntryViewModel>()
 
             .AddView<DiagnosticEntryView, IDiagnosticEntryViewModel>()
             .AddViewModel<DiagnosticEntryViewModel, IDiagnosticEntryViewModel>()
@@ -306,6 +309,7 @@ public static class Services
             .AddSingleton<IInteractionControlFactory<SingleValueMultipleChoiceContainerOptions>, SettingComboBoxFactory>()
             .AddSingleton<IInteractionControlFactory<BooleanContainerOptions>, SettingToggleFactory>()
             .AddSingleton<IInteractionControlFactory<ConfigurablePathsContainerOption>, SettingPathsFactory>()
+            .AddSingleton<IInteractionControlFactory<TextEntryContainerOptions>, SettingTextEntryFactory>()
 
             // Other
             .AddSingleton<InjectedViewLocator>()

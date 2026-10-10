@@ -52,6 +52,7 @@ public record ExternalDownloadJob : HttpDownloadJob
             Destination = tempFileManager.CreateFile(),
             Uri = uri,
             Client = provider.GetRequiredService<HttpClient>(),
+            ProxyPool = provider.GetService<ProxyPool>(),
         };
 
         return monitor.Begin<ExternalDownloadJob, AbsolutePath>(job);

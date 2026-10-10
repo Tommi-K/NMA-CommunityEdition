@@ -38,6 +38,12 @@ public record HttpDownloadJob : IJobDefinitionWithStart<HttpDownloadJob, Absolut
     public required ILogger Logger { get; init; }
 
     /// <summary>
+    /// Proxy pool, used to lease one proxy for the duration of this download so that
+    /// parallel downloads don't share a proxy. Null when proxy support isn't available.
+    /// </summary>
+    public ProxyPool? ProxyPool { get; init; }
+
+    /// <summary>
     /// The uri of the download page.
     /// </summary>
     public required Uri Uri { get; init; }
@@ -85,6 +91,7 @@ public record HttpDownloadJob : IJobDefinitionWithStart<HttpDownloadJob, Absolut
             Destination = destination,
             Logger = provider.GetRequiredService<ILogger<HttpDownloadJob>>(),
             Client = provider.GetRequiredService<HttpClient>(),
+            ProxyPool = provider.GetService<ProxyPool>(),
         };
 
         return monitor.Begin<HttpDownloadJob, AbsolutePath>(job);
@@ -111,8 +118,23 @@ public record HttpDownloadJob : IJobDefinitionWithStart<HttpDownloadJob, Absolut
         await context.YieldAsync();
         if (_state.TotalBytesDownloaded > Size.Zero)
             Logger.LogInformation("Resuming download from {Bytes} bytes", _state.TotalBytesDownloaded);
-        
-        await FetchMetadata(context);
+
+        // NOTE(CE): held for this attempt only, a retry leases again and so moves to
+        // another proxy if this one just failed
+        using var lease = ProxyPool?.AcquireLease();
+        if (lease is { IsDirect: true })
+        {
+            Logger.LogInformation("Downloading `{Uri}` on the local connection, the other downloads take the proxies", Uri);
+        }
+        else if (lease is not null)
+        {
+            Logger.LogInformation(
+                "Downloading `{Uri}` through proxy `{Proxy}`{Shared}",
+                Uri, lease.Address, lease.IsExclusive ? string.Empty : " (shared with another download)"
+            );
+        }
+
+        await FetchMetadata(context, lease);
 
         await context.YieldAsync();
         await using var fileStream = Destination.Open(FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
@@ -140,7 +162,7 @@ public record HttpDownloadJob : IJobDefinitionWithStart<HttpDownloadJob, Absolut
         }
 
         await context.YieldAsync();
-        using var request = PrepareRequest(out var isRangeRequest);
+        using var request = PrepareRequest(lease, out var isRangeRequest);
         using var response = await Client.SendAsync(
             request: request,
             completionOption: HttpCompletionOption.ResponseHeadersRead,
@@ -232,9 +254,21 @@ public record HttpDownloadJob : IJobDefinitionWithStart<HttpDownloadJob, Absolut
         return Destination;
     }
     
-    private HttpRequestMessage PrepareRequest(out bool isRangeRequest)
+    private static HttpRequestMessage CreateRequest(HttpMethod method, Uri uri, ProxyPool.ProxyLease? lease)
     {
-        var request = new HttpRequestMessage(HttpMethod.Get, Uri);
+        var request = new HttpRequestMessage(method, uri);
+
+        ProxyRequestOptions.MarkAsFileDownload(request);
+
+        if (lease is { IsDirect: true }) ProxyRequestOptions.PinToDirectConnection(request);
+        else if (lease?.Address is not null) ProxyRequestOptions.SetLeasedProxy(request, lease.Address);
+
+        return request;
+    }
+
+    private HttpRequestMessage PrepareRequest(ProxyPool.ProxyLease? lease, out bool isRangeRequest)
+    {
+        var request = CreateRequest(HttpMethod.Get, Uri, lease);
 
         // NOTE(erri120): use a normal GET request for the entire file
         if (!_state.AcceptRanges.Value || _state.TotalBytesDownloaded == Size.Zero)
@@ -280,9 +314,10 @@ public record HttpDownloadJob : IJobDefinitionWithStart<HttpDownloadJob, Absolut
         return request;
     }
 
-    private async ValueTask FetchMetadata(IJobContext context)
+    private async ValueTask FetchMetadata(IJobContext context, ProxyPool.ProxyLease? lease)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Head, Uri);
+        using var request = CreateRequest(HttpMethod.Head, Uri, lease);
+
         using var response = await Client.SendAsync(
             request: request,
             completionOption: HttpCompletionOption.ResponseHeadersRead,
