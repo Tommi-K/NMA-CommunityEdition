@@ -29,11 +29,31 @@ This is an **unofficial fork**, not affiliated with, endorsed by, or supported b
 - **Epic Games Store** (where applicable per game)
 - **Microsoft Store / Xbox Game Pass** (where applicable per game)
 
+### Built-in browser
+
+Mod pages open in a Chromium tab inside the app instead of handing you off to your system browser.
+
+- **Your Nexus Mods sign-in is kept** across restarts, so signing in is a one-off.
+- **Collection auto-downloading without premium**: the app works through a collection one mod at a time, driving each mod's download page itself. Premium still downloads through the API.
+- **Runs in the background**: a download run uses a single tab and never pulls the window in front of you, so you can start a collection and go do something else. There's a cancel button for the whole run.
+- **Ad and tracker blocking**, on by default — toggle it in Settings > Privacy.
+
 ### Other
 
 - **Linux-first**: bug fixes and packaging target Linux desktop environments first.
+- **Reorderable tabs**: drag a tab header sideways to move it.
+- **Add games manually** when the store locators can't find an install.
+- **Accurate Play button on Linux**: the app follows the real game process through Steam/Proton, Heroic (GOG) and Epic, instead of flipping back to "Launch" the moment the launcher returns.
+- **Much smaller disk footprint** for games the hashes database has no manifest for — the app records a baseline of the install instead of archiving the whole game folder.
 - **9 UI languages**: English, French, German, Italian, Polish, Portuguese (Brazil), Russian, Turkish, Ukrainian — switchable in Settings > General > Language.
 - **AppImage** distribution for easy install on any Linux distribution.
+
+### Fixes worth calling out
+
+- **FOMOD installers during collection installs**: collections install their mods in parallel, and every install shared one set of installer state — which left blank installer windows, installs waiting forever, and mods installed with another mod's choices. Each install now has its own, and installer windows are shown one at a time.
+- **Truncated downloads**: a server that cuts a download short while still reporting success is now detected and the download retried, instead of a partial file being archived and extracting garbage on install.
+- **Cyberpunk 2077** deployment covers every archive root, and no longer leaves duplicate file entries behind.
+- **Synchroniser** no longer keeps stale deletion markers that contradicted active mods.
 
 ## Roadmap
 
