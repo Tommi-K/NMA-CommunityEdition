@@ -79,6 +79,10 @@ public class Program
             Events.AppLaunched();
         }
 
+        // NOTE(CE): has to come before anything resolves the TemporaryFileManager, which
+        // reads the temp folder setting once when it is constructed
+        if (startupMode.RunAsMain) TempFolderLocation.FollowStorageLocation(services, _logger);
+
         // NOTE(erri120): has to come before host startup
         CleanupUnresponsiveProcesses(services).Wait(timeout: TimeSpan.FromSeconds(10));
 
