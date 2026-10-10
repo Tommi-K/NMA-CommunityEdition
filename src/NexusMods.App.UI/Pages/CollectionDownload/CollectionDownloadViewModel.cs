@@ -5,6 +5,7 @@ using DynamicData;
 using DynamicData.Kernel;
 using Microsoft.Extensions.DependencyInjection;
 using NexusMods.Abstractions.Loadouts;
+using NexusMods.Abstractions.NexusModsLibrary;
 using NexusMods.Abstractions.NexusModsLibrary.Models;
 using NexusMods.Abstractions.NexusWebApi;
 using NexusMods.Abstractions.NexusWebApi.Types;
@@ -69,6 +70,7 @@ public sealed class CollectionDownloadViewModel : APageViewModel<ICollectionDown
         var collectionDownloader = serviceProvider.GetRequiredService<CollectionDownloader>();
         var loginManager = serviceProvider.GetRequiredService<ILoginManager>();
         var jobMonitor = serviceProvider.GetRequiredService<IJobMonitor>();
+        var modUpdateDownloader = serviceProvider.GetRequiredService<ModUpdateDownloader>();
 
         var tileImagePipeline = ImagePipelines.GetCollectionTileImagePipeline(serviceProvider);
         var backgroundImagePipeline = ImagePipelines.GetCollectionBackgroundImagePipeline(serviceProvider);
@@ -216,6 +218,17 @@ public sealed class CollectionDownloadViewModel : APageViewModel<ICollectionDown
                 var behavior = new OpenPageBehavior.NewTab(PanelId);
                 workspaceController.OpenPage(WorkspaceId, pageData, behavior);
             }
+        );
+
+        CommandDownloadModUpdates = new ReactiveCommand<Unit>(
+            executeAsync: async (_, cancellationToken) =>
+            {
+                if (!await loginManager.EnsureLoggedIn("Download mod updates", cancellationToken)) return;
+
+                await modUpdateDownloader.DownloadAll(GetNewestFilesForCollectionMods(), cancellationToken);
+            },
+            awaitOperation: AwaitOperation.Drop,
+            configureAwait: false
         );
 
         CommandViewCollection = IsInstalled.ToReactiveCommand<NavigationInformation>(info =>
@@ -461,6 +474,45 @@ public sealed class CollectionDownloadViewModel : APageViewModel<ICollectionDown
         );
     }
 
+    /// <summary>
+    /// The newest file of every mod this collection pins that has a newer one available.
+    /// </summary>
+    /// <remarks>
+    /// Restricted to the files the collection actually uses. A mod page can hold files this
+    /// collection never asked for, and an update to one of those is nothing to do with it.
+    /// </remarks>
+    private NexusModsFileMetadata.ReadOnly[] GetNewestFilesForCollectionMods()
+    {
+        var modUpdateService = _serviceProvider.GetRequiredService<IModUpdateService>();
+
+        var pinnedFileIds = new HashSet<EntityId>();
+        var modPages = new Dictionary<EntityId, NexusModsModPageMetadata.ReadOnly>();
+
+        foreach (var download in _revision.Downloads)
+        {
+            if (!download.TryGetAsCollectionDownloadNexusMods(out var nexusModsDownload)) continue;
+
+            var file = nexusModsDownload.FileMetadata;
+            pinnedFileIds.Add(file.Id);
+            modPages[file.ModPage.Id] = file.ModPage;
+        }
+
+        var newestFiles = new List<NexusModsFileMetadata.ReadOnly>();
+        foreach (var modPage in modPages.Values)
+        {
+            var updates = modUpdateService.HasModPageUpdatesAvailable(modPage);
+            if (!updates.HasValue) continue;
+
+            foreach (var mapping in updates.Value.FileMappings)
+            {
+                if (!pinnedFileIds.Contains(mapping.File.Id)) continue;
+                newestFiles.Add(mapping.NewestFile);
+            }
+        }
+
+        return newestFiles.DistinctBy(static file => file.Id).ToArray();
+    }
+
     private ValueTask OpenManualDownloadModal(CollectionDownloadExternal.ReadOnly downloadEntity)
     {
         _overlayController.Enqueue(new ManualDownloadRequiredOverlayViewModel(_serviceProvider, downloadEntity));
@@ -537,6 +589,7 @@ public sealed class CollectionDownloadViewModel : APageViewModel<ICollectionDown
 
     public ReactiveCommand<Unit> CommandViewOnNexusMods { get; }
     public ReactiveCommand<Unit> CommandOpenJsonFile { get; }
+    public ReactiveCommand<Unit> CommandDownloadModUpdates { get; }
     public ReactiveCommand<Unit> CommandDeleteAllDownloads { get; }
     public ReactiveCommand<Unit> CommandDeleteCollectionRevision { get; }
 }

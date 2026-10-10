@@ -122,6 +122,16 @@ public interface ICollectionDownloadViewModel : IPageViewModelInterface
 
     ReactiveCommand<Unit> CommandViewOnNexusMods { get; }
     ReactiveCommand<Unit> CommandOpenJsonFile { get; }
+
+    /// <summary>
+    /// Downloads the newest file of every mod in this collection that has one, into the library.
+    /// </summary>
+    /// <remarks>
+    /// Per mod, as opposed to <see cref="CommandUpdateCollection"/>, which moves the whole
+    /// collection on to a revision the author published. Nothing installed is touched: the files
+    /// land in the library and the collection stays as the author published it.
+    /// </remarks>
+    ReactiveCommand<Unit> CommandDownloadModUpdates { get; }
     ReactiveCommand<Unit> CommandDeleteAllDownloads { get; }
     ReactiveCommand<Unit> CommandDeleteCollectionRevision { get; }
 }

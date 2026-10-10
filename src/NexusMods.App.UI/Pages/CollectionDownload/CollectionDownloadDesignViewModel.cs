@@ -64,6 +64,7 @@ public class CollectionDownloadDesignViewModel : APageViewModel<ICollectionDownl
     public ReactiveCommand<Unit> CommandDownloadRequiredItems { get; } = new ReactiveCommand();
     public ReactiveCommand<Unit> CommandInstallOptionalItems { get; } = new ReactiveCommand();
     public ReactiveCommand<Unit> CommandCancelDownload { get; } = new ReactiveCommand();
+    public ReactiveCommand<Unit> CommandDownloadModUpdates { get; } = new ReactiveCommand();
     public ReactiveCommand<Unit> CommandInstallRequiredItems { get; } = new ReactiveCommand();
     public ReactiveCommand<Unit> CommandUpdateCollection { get; } = new ReactiveCommand();
 

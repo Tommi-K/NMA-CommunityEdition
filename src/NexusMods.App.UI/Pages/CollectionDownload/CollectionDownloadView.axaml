@@ -37,6 +37,15 @@
                     <TextBlock Text="{x:Static resources:Language.CollectionDownloadView_Menu_OpenJsonFile}" />
                 </MenuItem.Header>
             </MenuItem>
+            <MenuItem x:Name="MenuItemDownloadModUpdates"
+                      ToolTip.Tip="{x:Static resources:Language.CollectionDownloadView_Menu_DownloadModUpdates_ToolTip}">
+                <MenuItem.Icon>
+                    <icons:UnifiedIcon Value="{x:Static icons:IconValues.Update}" />
+                </MenuItem.Icon>
+                <MenuItem.Header>
+                    <TextBlock Text="{x:Static resources:Language.CollectionDownloadView_Menu_DownloadModUpdates}" />
+                </MenuItem.Header>
+            </MenuItem>
             <MenuItem x:Name="MenuItemDeleteCollectionRevision" Classes="Critical">
                 <MenuItem.Icon>
                     <icons:UnifiedIcon Value="{x:Static icons:IconValues.DeleteOutline}" />

@@ -22,6 +22,15 @@ public interface ILibraryViewModel : IPageViewModelInterface
     public ReactiveCommand<Unit> UpdateAllCommand { get; }
     public ReactiveCommand<Unit> RefreshUpdatesCommand { get; }
 
+    /// <summary>
+    /// Stops an "update all" run that is under way, keeping whatever already downloaded.
+    /// </summary>
+    /// <remarks>
+    /// Without premium the run drives each mod's download page in a tab, one after another, so
+    /// it can take a long time over a library's worth of updates and needs a way out.
+    /// </remarks>
+    public ReactiveCommand<Unit> CancelUpdateAllCommand { get; }
+
     ReactiveCommand<Unit> InstallSelectedItemsCommand { get; }
     ReactiveCommand<Unit> InstallSelectedItemsWithAdvancedInstallerCommand { get; }
     ReactiveCommand<Unit> UpdateSelectedItemsCommand { get; }

@@ -177,6 +177,13 @@
                                                      Type="Primary" 
                                                      Fill="WeakAlt"
                                                      LeftIcon="{x:Static icons:IconValues.Download}" />
+                            <controls:StandardButton IsVisible="False" x:Name="CancelUpdateAllButton"
+                                                     Text="{x:Static resources:Language.FileOriginPage_CancelUpdateAll}"
+                                                     ShowIcon="Left"
+                                                     Size="Toolbar"
+                                                     Type="Secondary"
+                                                     Fill="Weak"
+                                                     LeftIcon="{x:Static icons:IconValues.Close}" />
                         </ItemsControl>
                     </controls:Toolbar>
 

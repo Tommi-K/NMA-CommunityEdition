@@ -57,6 +57,7 @@ public class LibraryViewModel : APageViewModel<ILibraryViewModel>, ILibraryViewM
 
     public ReactiveCommand<Unit> UpdateAllCommand { get; }
     public ReactiveCommand<Unit> RefreshUpdatesCommand { get; }
+    public ReactiveCommand<Unit> CancelUpdateAllCommand { get; }
     public ReactiveCommand<Unit> InstallSelectedItemsCommand { get; }
 
     public ReactiveCommand<Unit> InstallSelectedItemsWithAdvancedInstallerCommand { get; }
@@ -90,6 +91,12 @@ public class LibraryViewModel : APageViewModel<ILibraryViewModel>, ILibraryViewM
     private readonly IGameDomainToGameIdMappingCache _gameIdMappingCache;
     private readonly Loadout.ReadOnly _loadout;
     private readonly IModUpdateService _modUpdateService;
+    private readonly ModUpdateDownloader _modUpdateDownloader;
+
+    /// <summary>
+    /// Cancels the "update all" run that is under way, when there is one.
+    /// </summary>
+    private CancellationTokenSource? _updateAllCancellation;
     private readonly ILoginManager _loginManager;
     private readonly NexusModsLibrary _nexusModsLibrary;
     private readonly TemporaryFileManager _temporaryFileManager;
@@ -117,6 +124,7 @@ public class LibraryViewModel : APageViewModel<ILibraryViewModel>, ILibraryViewM
         _nexusModsLibrary = serviceProvider.GetRequiredService<NexusModsLibrary>();
         _connection = serviceProvider.GetRequiredService<IConnection>();
         _modUpdateService = serviceProvider.GetRequiredService<IModUpdateService>();
+        _modUpdateDownloader = serviceProvider.GetRequiredService<ModUpdateDownloader>();
         _loginManager = serviceProvider.GetRequiredService<ILoginManager>();
         _temporaryFileManager = serviceProvider.GetRequiredService<TemporaryFileManager>();
         _notificationService = serviceProvider.GetRequiredService<IWindowNotificationService>();
@@ -162,6 +170,10 @@ public class LibraryViewModel : APageViewModel<ILibraryViewModel>, ILibraryViewM
             initialCanExecute: true,
             configureAwait: false
         );
+
+        CancelUpdateAllCommand = this.WhenAnyValue(vm => vm.IsUpdatingAll)
+            .ToObservable()
+            .ToReactiveCommand<Unit>(execute: _ => _updateAllCancellation?.Cancel());
 
         var hasSelection = Adapter.SelectedModels
             .ObserveCountChanged()
@@ -358,7 +370,7 @@ public class LibraryViewModel : APageViewModel<ILibraryViewModel>, ILibraryViewM
         // Note(sewer): Per design, in the future this will expand the mod rows.
         //              But, due to the TreeDataGrid bug, we can't do that today, yet.
         // Instead update and keep old for free users.
-        UpdateAndKeepOldFree(updatesOnPageCollection);
+        await UpdateAndKeepOldFree(updatesOnPageCollection, cancellationToken);
     }
 
     private async ValueTask UpdateAndReplaceForMultiModPagesPremiumOnly(CancellationToken cancellationToken, IEnumerable<ModUpdatesOnModPage> updatesOnPageCollection)
@@ -674,7 +686,7 @@ public class LibraryViewModel : APageViewModel<ILibraryViewModel>, ILibraryViewM
                }
             */
 
-            UpdateAndKeepOldFree([updatesOnPage]);
+            await UpdateAndKeepOldFree([updatesOnPage], cancellationToken);
         }
         else
         {
@@ -682,37 +694,32 @@ public class LibraryViewModel : APageViewModel<ILibraryViewModel>, ILibraryViewM
         }
     }
 
-    private void UpdateAndKeepOldFree(IEnumerable<ModUpdatesOnModPage> updatesOnPages)
+    /// <summary>
+    /// Downloads the newest file of every mod that has an update, for an account without premium.
+    /// </summary>
+    /// <remarks>
+    /// A free account can't be handed a download by the API, so the files are fetched by driving
+    /// each mod's download page in the app's own browser tab; see <see cref="ModUpdateDownloader"/>.
+    /// The old files stay in the library, which is what makes this "keep old".
+    /// </remarks>
+    private ValueTask UpdateAndKeepOldFree(IEnumerable<ModUpdatesOnModPage> updatesOnPages, CancellationToken cancellationToken)
+        => _modUpdateDownloader.DownloadAll(NewestFilesOf(updatesOnPages), cancellationToken);
+
+    /// <summary>
+    /// The newest file of every mod across <paramref name="updatesOnPages"/>, each one once.
+    /// </summary>
+    private static IEnumerable<NexusModsFileMetadata.ReadOnly> NewestFilesOf(IEnumerable<ModUpdatesOnModPage> updatesOnPages)
     {
-        // Aggregate all unique files across all mod pages
         var newestToCurrentMapping = new Dictionary<NexusModsFileMetadata.ReadOnly, List<NexusModsFileMetadata.ReadOnly>>();
         foreach (var updatesOnPage in updatesOnPages)
             updatesOnPage.NewestToCurrentFileMapping(newestToCurrentMapping);
-        
-        // Open download page for every unique file
-        var osInterop = _serviceProvider.GetRequiredService<IOSInterop>();
-        foreach (var newestFile in newestToCurrentMapping.Keys)
-        {
-            var uri = NexusModsUrlBuilder.GetFileDownloadUri(newestFile.ModPage.GameDomain, newestFile.ModPage.Uid.ModId, newestFile.Uid.FileId, useNxmLink: true, campaign: NexusModsUrlBuilder.CampaignUpdates);
-            osInterop.OpenUri(uri);
-        }
+
+        return newestToCurrentMapping.Keys;
     }
 
     private async Task UpdateAndKeepOldPremium(IEnumerable<ModUpdatesOnModPage> updatesOnPages, CancellationToken cancellationToken)
     {
-        // Aggregate all unique files across all mod pages
-        var newestToCurrentMapping = new Dictionary<NexusModsFileMetadata.ReadOnly, List<NexusModsFileMetadata.ReadOnly>>();
-        foreach (var updatesOnPage in updatesOnPages)
-            updatesOnPage.NewestToCurrentFileMapping(newestToCurrentMapping);
-        
-        // Note(sewer): There's usually just 1 file in like 99% of the cases here
-        //              so no need to optimize around file reuse and TemporaryFileManager.
-        foreach (var newestFile in newestToCurrentMapping.Keys)
-        {
-            await using var tempPath = _temporaryFileManager.CreateFile();
-            var job = await _nexusModsLibrary.CreateDownloadJob(tempPath, newestFile, cancellationToken: cancellationToken);
-            await _libraryService.AddDownload(job);
-        }
+        await _modUpdateDownloader.DownloadAll(NewestFilesOf(updatesOnPages), cancellationToken);
     }
 
     private ValueTask HandleViewChangelogMessage(ViewChangelogMessage viewChangelogMessage, CancellationToken cancellationToken)
@@ -827,6 +834,13 @@ After asking design, we're choosing to simply open the mod page for now.
     {
         var modPage = new NexusModsModPageMetadata.ReadOnly(_connection.Db, modPageMetadataId);
         var url = NexusModsUrlBuilder.GetModUri(modPage.GameDomain, modPage.Uid.ModId);
+
+        // In a tab, like the game pages above, and out to the system browser only when there
+        // is no tab to open. A tab the user is reading in, so it keeps itself to itself: no
+        // download is started for it and it isn't closed from under them.
+        var inAppBrowser = _serviceProvider.GetService<IInAppBrowser>();
+        if (inAppBrowser?.TryOpen(url, modPage.Name) == true) return ValueTask.CompletedTask;
+
         var os = _serviceProvider.GetRequiredService<IOSInterop>();
         os.OpenUri(url);
         return ValueTask.CompletedTask;
@@ -1000,7 +1014,7 @@ After asking design, we're choosing to simply open the mod page for now.
             }
             else
             {
-                if (!isPremium) UpdateAndKeepOldFree(withUpdatesOnPage);
+                if (!isPremium) await UpdateAndKeepOldFree(withUpdatesOnPage, cancellationToken);
                 else
                     await UpdateAndKeepOldPremium(withUpdatesOnPage, cancellationToken);
             }
@@ -1010,16 +1024,14 @@ After asking design, we're choosing to simply open the mod page for now.
     private async ValueTask UpdateAllItems(CancellationToken cancellationToken)
     {
         IsUpdatingAll = true;
+
+        // Linked so the run stops either when the command goes away or when the user asks it to.
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _updateAllCancellation = cancellation;
+
         try
         {
-            var isPremium = _loginManager.IsPremium;
-
-            if (!isPremium)
-            {
-                var osInterop = _serviceProvider.GetRequiredService<IOSInterop>();
-                await PremiumDialog.ShowUpdatePremiumDialog(WindowManager, osInterop);
-                return;
-            }
+            cancellationToken = cancellation.Token;
 
             // Filter mod pages to only those for the current game
             var currentGameId = _loadout.InstallationInstance.Game.NexusModsGameId;
@@ -1030,12 +1042,29 @@ After asking design, we're choosing to simply open the mod page for now.
                     return modPage.IsValid() && modPage.Uid.GameId == currentGameId;
                 });
             var allUpdates = modPagesWithUpdates.Select(pair => pair.updates).ToArray();
-            
-            if (allUpdates.Length > 0)
+
+            if (allUpdates.Length == 0) return;
+
+            if (_loginManager.IsPremium)
+            {
                 await UpdateAndReplaceForMultiModPagesPremiumOnly(cancellationToken, allUpdates);
+            }
+            else
+            {
+                // No longer an upsell. A free account's downloads are driven in the app's own
+                // browser tab, one file after another, so updating everything works here too --
+                // it just leaves the old files in place, as every other free update path does.
+                await UpdateAndKeepOldFree(allUpdates, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Asked for by the user. Whatever downloaded before they pressed it is in the
+            // library already, and running the update again picks up from there.
         }
         finally
         {
+            _updateAllCancellation = null;
             IsUpdatingAll = false;
         }
     }

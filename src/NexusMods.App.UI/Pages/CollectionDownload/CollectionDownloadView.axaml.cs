@@ -30,6 +30,9 @@ public partial class CollectionDownloadView : ReactiveUserControl<ICollectionDow
                 this.BindCommand(ViewModel, vm => vm.CommandOpenJsonFile, view => view.MenuItemOpenJsonFile)
                     .DisposeWith(d);
 
+                this.BindCommand(ViewModel, vm => vm.CommandDownloadModUpdates, view => view.MenuItemDownloadModUpdates)
+                    .DisposeWith(d);
+
                 this.BindCommand(ViewModel, vm => vm.CommandDeleteCollectionRevision, view => view.MenuItemDeleteCollectionRevision)
                     .DisposeWith(d);
 

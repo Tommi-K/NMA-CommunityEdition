@@ -137,10 +137,24 @@ public partial class LibraryView : ReactiveUserControl<ILibraryViewModel>
                 this.BindCommand(ViewModel, vm => vm.RefreshUpdatesCommand, view => view.Refresh)
                     .AddTo(disposables);
 
+                this.BindCommand(ViewModel, vm => vm.CancelUpdateAllCommand, view => view.CancelUpdateAllButton)
+                    .AddTo(disposables);
+
+                // While a run is going the update button can't be pressed anyway, so it gives
+                // up its place to the one button that does something.
+                this.OneWayBind(ViewModel,
+                        vm => vm.IsUpdatingAll,
+                        view => view.CancelUpdateAllButton.IsVisible)
+                    .AddTo(disposables);
+
                 this.BindCommand(ViewModel, vm => vm.UpdateAllCommand, view => view.UpdateAllButton)
                     .AddTo(disposables);
 
-                this.OneWayBind(ViewModel, vm => vm.HasAnyUpdatesAvailable, view => view.UpdateAllButton.IsVisible)
+                this.WhenAnyValue(
+                        view => view.ViewModel!.HasAnyUpdatesAvailable,
+                        view => view.ViewModel!.IsUpdatingAll,
+                        static (hasUpdates, isUpdatingAll) => hasUpdates && !isUpdatingAll)
+                    .Subscribe(isVisible => UpdateAllButton.IsVisible = isVisible)
                     .AddTo(disposables);
 
                 this.WhenAnyValue(view => view.ViewModel!.InstallationTargets.Count)

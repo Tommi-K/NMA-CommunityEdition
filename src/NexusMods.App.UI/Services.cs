@@ -271,6 +271,7 @@ public static class Services
             .AddSingleton<IPageFactory, BrowserPageFactory>()
             .AddSingleton<IInAppBrowser, InAppBrowser>()
             .AddSingleton<BrowserDownloadTracker>()
+            .AddSingleton<ModUpdateDownloader>()
             .AddSingleton<AdBlocker>()
             .AddSingleton<IPageFactory, MyLoadoutsPageFactory>()
             .AddSingleton<IPageFactory, LibraryPageFactory>()

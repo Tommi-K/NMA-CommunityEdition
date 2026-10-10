@@ -305,6 +305,24 @@ namespace NexusMods.App.UI.Resources {
         /// <summary>
         ///   Looks up a localized string similar to Delete collection revision.
         /// </summary>
+        public static string CollectionDownloadView_Menu_DownloadModUpdates {
+            get {
+                return ResourceManager.GetString("CollectionDownloadView_Menu_DownloadModUpdates", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Downloads the newest file of every mod in this collection that has one.
+        /// </summary>
+        public static string CollectionDownloadView_Menu_DownloadModUpdates_ToolTip {
+            get {
+                return ResourceManager.GetString("CollectionDownloadView_Menu_DownloadModUpdates_ToolTip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Delete collection revision.
+        /// </summary>
         public static string CollectionDownloadView_Menu_DeleteCollectionRevision {
             get {
                 return ResourceManager.GetString("CollectionDownloadView_Menu_DeleteCollectionRevision", resourceCulture);
@@ -1329,6 +1347,15 @@ namespace NexusMods.App.UI.Resources {
         public static string FileOriginPage_SwitchView_ToolTip {
             get {
                 return ResourceManager.GetString("FileOriginPage_SwitchView_ToolTip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Update All.
+        /// </summary>
+        public static string FileOriginPage_CancelUpdateAll {
+            get {
+                return ResourceManager.GetString("FileOriginPage_CancelUpdateAll", resourceCulture);
             }
         }
         

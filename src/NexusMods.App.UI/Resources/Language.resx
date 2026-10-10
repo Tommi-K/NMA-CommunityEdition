@@ -833,6 +833,9 @@ To apply changes or launch the game again, please close the game first.</value>
     <data name="CollectionDownloadViewModel_Num_required_mods_downloaded" xml:space="preserve">
         <value>{0} of {1} required mods downloaded. Complete downloads to install.</value>
     </data>
+    <data name="FileOriginPage_CancelUpdateAll" xml:space="preserve">
+        <value>Cancel update</value>
+    </data>
     <data name="FileOriginPage_UpdateAll" xml:space="preserve">
         <value>Update All</value>
     </data>
@@ -1345,6 +1348,12 @@ Keep the downloaded files in your library in case you want to retry the installa
     </data>
     <data name="CollectionDownloadView_Menu_OpenJsonFile" xml:space="preserve">
         <value>Open JSON file</value>
+    </data>
+    <data name="CollectionDownloadView_Menu_DownloadModUpdates" xml:space="preserve">
+        <value>Download mod updates</value>
+    </data>
+    <data name="CollectionDownloadView_Menu_DownloadModUpdates_ToolTip" xml:space="preserve">
+        <value>Downloads the newest file of every mod in this collection that has one, into your library. The installed collection is left as the author published it; you choose what to install.</value>
     </data>
     <data name="CollectionDownloadView_Menu_DeleteCollectionRevision" xml:space="preserve">
         <value>Delete collection revision</value>
