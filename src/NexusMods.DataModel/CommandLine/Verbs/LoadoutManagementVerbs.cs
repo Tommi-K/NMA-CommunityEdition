@@ -1,3 +1,4 @@
+using DynamicData.Kernel;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileSystemGlobbing;
 using NexusMods.Abstractions.Cli;
@@ -48,6 +49,8 @@ public static class LoadoutManagementVerbs
             .AddVerb(() => ListGroups)
             .AddVerb(() => DeleteGroupItems)
             .AddVerb(() => ListRevisions)
+            .AddVerb(() => ExportModList)
+            .AddVerb(() => ImportModList)
             .AddVerb(() => Revert);
 
     [Verb("loadout version set", "Sets the game version for a loadout")]
@@ -248,6 +251,106 @@ public static class LoadoutManagementVerbs
             .OfTypeLoadoutItemGroup()
             .Select(mod => (mod.AsLoadoutItem().Name, mod.Children.Count))
             .RenderTable(renderer, "Name", "Items");
+
+        return 0;
+    }
+
+    /// <summary>
+    /// Resolves the optional collection name of the two mod list verbs. No name means the whole loadout.
+    /// </summary>
+    private static bool TryResolveCollection(Loadout.ReadOnly loadout, string? name, out Optional<CollectionGroupId> collectionGroupId)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            collectionGroupId = Optional<CollectionGroupId>.None;
+            return true;
+        }
+
+        var match = CollectionGroup.All(loadout.Db)
+            .Where(group => group.AsLoadoutItemGroup().AsLoadoutItem().LoadoutId == loadout.LoadoutId)
+            .FirstOrOptional(group => string.Equals(group.AsLoadoutItemGroup().AsLoadoutItem().Name, name, StringComparison.OrdinalIgnoreCase));
+
+        collectionGroupId = match.Convert(static group => group.CollectionGroupId);
+        return match.HasValue;
+    }
+
+    [Verb("loadout export-mod-list", "Writes the loadout's mod order, enabled mods and load order to a Mod Organizer style modlist.txt and plugins.txt")]
+    private static async Task<int> ExportModList([Injected] IRenderer renderer,
+        [Option("l", "loadout", "Loadout to export")] Loadout.ReadOnly loadout,
+        [Option("o", "output", "Directory the two files are written to")] AbsolutePath output,
+        [Option("c", "collection", "Name of a collection to limit the mod list to", true)] string? collection,
+        [Injected] IModListService modListService,
+        [Injected] CancellationToken token)
+    {
+        if (!TryResolveCollection(loadout, collection, out var collectionGroupId))
+            return await renderer.InputError("No collection named {0} in this loadout", collection!);
+
+        var export = await modListService.Export(loadout.LoadoutId, collectionGroupId, token);
+
+        output.CreateDirectory();
+
+        var modListPath = output / ModOrganizerModList.FileName;
+        await modListPath.WriteAllTextAsync(export.ModList, token);
+        await renderer.TextLine("Wrote {0}", modListPath);
+
+        if (export.PluginList is null)
+        {
+            await renderer.TextLine("{0} has no load order to write", loadout.Game.DisplayName);
+            return 0;
+        }
+
+        var pluginListPath = output / ModOrganizerPluginList.FileName;
+        await pluginListPath.WriteAllTextAsync(export.PluginList, token);
+        await renderer.TextLine("Wrote {0}", pluginListPath);
+        return 0;
+    }
+
+    [Verb("loadout import-mod-list", "Applies a Mod Organizer style modlist.txt and plugins.txt to the loadout's mod order, enabled mods and load order")]
+    private static async Task<int> ImportModList([Injected] IRenderer renderer,
+        [Option("l", "loadout", "Loadout to change")] Loadout.ReadOnly loadout,
+        [Option("i", "input", "Directory holding modlist.txt and/or plugins.txt")] AbsolutePath input,
+        [Option("c", "collection", "Name of a collection to limit the matched mods to", true)] string? collection,
+        [Injected] IModListService modListService,
+        [Injected] CancellationToken token)
+    {
+        if (!TryResolveCollection(loadout, collection, out var collectionGroupId))
+            return await renderer.InputError("No collection named {0} in this loadout", collection!);
+
+        var modListPath = input / ModOrganizerModList.FileName;
+        var pluginListPath = input / ModOrganizerPluginList.FileName;
+
+        var modList = modListPath.FileExists ? await modListPath.ReadAllTextAsync(token) : null;
+        var pluginList = pluginListPath.FileExists ? await pluginListPath.ReadAllTextAsync(token) : null;
+
+        if (modList is null && pluginList is null)
+            return await renderer.InputError("Found neither {0} nor {1} in {2}", ModOrganizerModList.FileName, ModOrganizerPluginList.FileName, input);
+
+        var result = await modListService.Import(loadout.LoadoutId, new ModListImport(modList, pluginList), collectionGroupId, token);
+
+        if (result.ModListStatus == ModListImportStatus.Applied)
+        {
+            await renderer.TextLine("Ordered {0} mods, enabled {1}, disabled {2}", result.ModsOrdered, result.ModsEnabled, result.ModsDisabled);
+            if (result.UnmatchedMods.Length > 0)
+            {
+                await renderer.TextLine("{0} names matched no installed mod:", result.UnmatchedMods.Length);
+                await renderer.Table(["Mod"], result.UnmatchedMods.Select(name => new object[] { name }));
+            }
+        }
+
+        switch (result.PluginListStatus)
+        {
+            case ModListImportStatus.Applied:
+                await renderer.TextLine("Ordered {0} plugins", result.PluginsOrdered);
+                if (result.UnmatchedPlugins.Length > 0)
+                {
+                    await renderer.TextLine("{0} plugins are not in this loadout:", result.UnmatchedPlugins.Length);
+                    await renderer.Table(["Plugin"], result.UnmatchedPlugins.Select(name => new object[] { name }));
+                }
+                break;
+            case ModListImportStatus.NotSupported:
+                await renderer.TextLine("{0} builds its load order itself, so the plugin order was not applied", loadout.Game.DisplayName);
+                break;
+        }
 
         return 0;
     }

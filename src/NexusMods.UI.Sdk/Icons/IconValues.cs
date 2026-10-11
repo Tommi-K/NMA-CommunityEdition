@@ -340,6 +340,12 @@ public static class IconValues
     
     // https://pictogrammers.com/library/mdi/icon/export-variant/
     public static readonly IconValue ExportVariant = new ProjektankerIcon("mdi-export-variant");
+
+    // https://pictogrammers.com/library/mdi/icon/file-import-outline/
+    public static readonly IconValue FileImportOutline = new ProjektankerIcon("mdi-file-import-outline");
+
+    // https://pictogrammers.com/library/mdi/icon/file-export-outline/
+    public static readonly IconValue FileExportOutline = new ProjektankerIcon("mdi-file-export-outline");
     
     // https://pictogrammers.com/library/mdi/icon/pencil/
     public static readonly IconValue Pencil = new ProjektankerIcon("mdi-pencil");

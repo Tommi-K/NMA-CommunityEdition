@@ -11,6 +11,12 @@ public static class KnownCEExtensions
     public static readonly Extension ESL = new Extension(".esl");
     
     public static readonly Extension[] PluginFiles = [ESM, ESP, ESL];
+
+    /// <summary>
+    /// Plugin extensions for the pre-Fallout 4 Gamebryo engines, which have no light
+    /// plugins and will not load an <c>.esl</c>.
+    /// </summary>
+    public static readonly Extension[] GamebryoPluginFiles = [ESM, ESP];
     
     public static readonly Extension[] Plugins = { ESM, ESP, ESL };
 }

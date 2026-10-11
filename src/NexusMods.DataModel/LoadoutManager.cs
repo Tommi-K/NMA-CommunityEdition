@@ -662,6 +662,15 @@ internal partial class LoadoutManager : ILoadoutManager
         return ResolveFileConflicts(winnerIds: winnerIds, loserId: loser.LoadoutItemGroupPriorityId);
     }
 
+    public async ValueTask ReorderMods(LoadoutId loadoutId, LoadoutItemGroupId[] orderedGroupIds)
+    {
+        if (orderedGroupIds.Length == 0) return;
+
+        using var tx = _connection.BeginTransaction();
+        tx.Add(new ReorderModsTxFunc(loadoutId, orderedGroupIds));
+        await tx.Commit();
+    }
+
     private static VanityVersion? TryReadPrimaryFileVersion(GameInstallation installation)
     {
         try

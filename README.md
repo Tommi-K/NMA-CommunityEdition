@@ -19,6 +19,7 @@ This is an **unofficial fork**, not affiliated with, endorsed by, or supported b
 - **Stardew Valley**
 - **Skyrim Special Edition**
 - **Fallout 4**
+- **Fallout: New Vegas**
 - **Baldur's Gate 3**
 - **Mount & Blade II: Bannerlord**
 

@@ -146,6 +146,61 @@ internal partial class LoadoutManager
         }
     }
 
+    /// <summary>
+    /// Rearranges the priorities of some of a loadout's mods, leaving the rest where they are.
+    /// </summary>
+    private class ReorderModsTxFunc : ITxFunction
+    {
+        private readonly LoadoutId _loadoutId;
+        private readonly LoadoutItemGroupId[] _orderedGroupIds;
+
+        public ReorderModsTxFunc(LoadoutId loadoutId, LoadoutItemGroupId[] orderedGroupIds)
+        {
+            _loadoutId = loadoutId;
+            _orderedGroupIds = orderedGroupIds;
+        }
+
+        public bool Equals(ITxFunction? obj) => obj is ReorderModsTxFunc other && other._loadoutId.Equals(_loadoutId);
+
+        public override int GetHashCode() => _loadoutId.GetHashCode();
+
+        public void Apply(ITransaction tx, IDb basis)
+        {
+            var priorities = LoadoutItemGroupPriority
+                .FindByLoadout(basis, _loadoutId)
+                .OrderBy(static model => model.Priority)
+                .ToList();
+
+            // The positions the named mods hold between them. Redealing only those positions leaves
+            // every mod the caller didn't name exactly where it was.
+            var slots = new List<int>(capacity: _orderedGroupIds.Length);
+            var ordered = new List<LoadoutItemGroupPriority.ReadOnly>(capacity: _orderedGroupIds.Length);
+            var seen = new HashSet<LoadoutItemGroupId>();
+
+            foreach (var groupId in _orderedGroupIds)
+            {
+                if (!seen.Add(groupId)) continue;
+
+                var index = priorities.FindIndex(priority => priority.TargetId == groupId);
+                if (index == -1) continue;
+
+                slots.Add(index);
+                ordered.Add(priorities[index]);
+            }
+
+            slots.Sort();
+
+            for (var i = 0; i < slots.Count; i++)
+            {
+                var model = ordered[i];
+                var newPriority = priorities[slots[i]].Priority;
+                if (model.Priority == newPriority) continue;
+
+                tx.Add(model.Id, LoadoutItemGroupPriority.Priority, newPriority);
+            }
+        }
+    }
+
     private class ApplyCollectionRulesTxFunc : ITxFunction
     {
         private readonly LoadoutId _loadoutId;

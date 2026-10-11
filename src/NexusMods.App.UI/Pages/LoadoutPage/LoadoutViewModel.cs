@@ -1,8 +1,10 @@
 using System.Reactive.Disposables;
+using Avalonia.Platform.Storage;
 using DynamicData;
 using DynamicData.Kernel;
 using Microsoft.Extensions.DependencyInjection;
 using NexusMods.Abstractions.Collections;
+using NexusMods.Abstractions.Games;
 using NexusMods.Abstractions.Loadouts;
 using NexusMods.Abstractions.Loadouts.Extensions;
 using NexusMods.Abstractions.Loadouts.Synchronizers;
@@ -27,6 +29,7 @@ using NexusMods.App.UI.Settings;
 using NexusMods.App.UI.Windows;
 using NexusMods.App.UI.WorkspaceSystem;
 using NexusMods.Collections;
+using NexusMods.Paths;
 using NexusMods.UI.Sdk.Icons;
 using NexusMods.MnemonicDB.Abstractions;
 using NexusMods.MnemonicDB.Abstractions.ElementComparers;
@@ -91,6 +94,9 @@ public class LoadoutViewModel : APageViewModel<ILoadoutViewModel>, ILoadoutViewM
     public ReactiveCommand<Unit> CommandCopyRevisionUrl { get; }
     public ReactiveCommand<Unit> CommandChangeVisibility { get; }
     public ReactiveCommand<Unit> CommandDeleteGroup { get; }
+
+    public ReactiveCommand<Unit> CommandImportModList { get; }
+    public ReactiveCommand<Unit> CommandExportModList { get; }
 
     public bool EnableCollectionSharing { get; }
 
@@ -444,6 +450,99 @@ public class LoadoutViewModel : APageViewModel<ILoadoutViewModel>, ILoadoutViewM
             CommandChangeVisibility = new ReactiveCommand();
             CommandDeleteGroup = new ReactiveCommand();
         }
+
+        var modListService = serviceProvider.GetRequiredService<IModListService>();
+
+        // The scope the two commands work on: one collection, or every mod in the loadout when the
+        // page is the combined "All" view.
+        var modListScopeDescription = collectionGroupId.HasValue
+            ? $"the mods in \"{LoadoutItem.Load(_connection.Db, collectionGroupId.Value).Name}\""
+            : "all your installed mods";
+
+        CommandImportModList = new ReactiveCommand<Unit>(async (_, cancellationToken) =>
+            {
+                var paths = await _avaloniaInterop.OpenFilePickerAsync(new FilePickerOpenOptions
+                    {
+                        AllowMultiple = true,
+                        Title = $"Select {ModOrganizerModList.FileName} and/or {ModOrganizerPluginList.FileName}",
+                        FileTypeFilter =
+                        [
+                            new FilePickerFileType("Mod Organizer lists")
+                            {
+                                Patterns = ["*.txt"],
+                            },
+                        ],
+                    }
+                );
+
+                if (paths.Length == 0) return;
+
+                string? modList = null;
+                string? pluginList = null;
+
+                foreach (var path in paths)
+                {
+                    var contents = await path.ReadAllTextAsync(cancellationToken);
+                    if (IsModList(path, contents)) modList ??= contents;
+                    else pluginList ??= contents;
+                }
+
+                var confirmation = await windowManager.ShowDialog(
+                    LoadoutDialogs.ImportModList(modListScopeDescription, modList is not null, pluginList is not null),
+                    DialogWindowType.Modal
+                );
+
+                if (confirmation.ButtonId != ButtonDefinitionId.Accept) return;
+
+                var result = await modListService.Import(loadoutId, new ModListImport(modList, pluginList), collectionGroupId, cancellationToken);
+                await windowManager.ShowDialog(LoadoutDialogs.ModListImported(result), DialogWindowType.Modal);
+            }, maxSequential: 1, configureAwait: false
+        );
+
+        CommandExportModList = new ReactiveCommand<Unit>(async (_, cancellationToken) =>
+            {
+                var directories = await _avaloniaInterop.OpenFolderPickerAsync(new FolderPickerOpenOptions
+                    {
+                        AllowMultiple = false,
+                        Title = $"Choose where to save {ModOrganizerModList.FileName} and {ModOrganizerPluginList.FileName}",
+                    }
+                );
+
+                if (directories.Length == 0) return;
+                var directory = directories[0];
+
+                var export = await modListService.Export(loadoutId, collectionGroupId, cancellationToken);
+
+                var targets = new List<(string FileName, string Contents)> { (ModOrganizerModList.FileName, export.ModList) };
+                if (export.PluginList is not null)
+                    targets.Add((ModOrganizerPluginList.FileName, export.PluginList));
+
+                // The folder the user picked may well be a Mod Organizer profile, whose own files
+                // have these exact names.
+                var existing = targets
+                    .Where(target => (directory / target.FileName).FileExists)
+                    .Select(static target => target.FileName)
+                    .ToArray();
+
+                if (existing.Length > 0)
+                {
+                    var overwrite = await windowManager.ShowDialog(
+                        LoadoutDialogs.OverwriteModListFiles(existing, directory.ToString()),
+                        DialogWindowType.Modal
+                    );
+
+                    if (overwrite.ButtonId != ButtonDefinitionId.Accept) return;
+                }
+
+                foreach (var (fileName, contents) in targets)
+                    await (directory / fileName).WriteAllTextAsync(contents, cancellationToken);
+
+                _notificationService.ShowToast(
+                    $"Saved {string.Join(" and ", targets.Select(static target => target.FileName))} to {directory}",
+                    ToastNotificationVariant.Success
+                );
+            }, maxSequential: 1, configureAwait: false
+        );
 
         CommandDeselectItems = new ReactiveCommand<Unit>(_ => { Adapter.ClearSelection(); });
 
@@ -846,6 +945,27 @@ public class LoadoutViewModel : APageViewModel<ILoadoutViewModel>, ILoadoutViewM
         {
             tx.Add(managedCollectionLoadoutGroup, ManagedCollectionLoadoutGroup.LastPublishedRevisionNumber, lastPublishedRevisionNumber.Value);
         }
+    }
+
+    /// <summary>
+    /// Tells the two file kinds apart, so the user can hand us either or both in one go.
+    /// </summary>
+    /// <remarks>
+    /// A <c>modlist.txt</c> prefixes every mod with <c>+</c> or <c>-</c> and a <c>plugins.txt</c> never
+    /// does, which identifies the file no matter what the user renamed it to.
+    /// </remarks>
+    private static bool IsModList(AbsolutePath path, string contents)
+    {
+        var fileName = path.FileName.ToString();
+        if (string.Equals(fileName, ModOrganizerModList.FileName, StringComparison.OrdinalIgnoreCase)) return true;
+        if (string.Equals(fileName, ModOrganizerPluginList.FileName, StringComparison.OrdinalIgnoreCase)) return false;
+
+        return contents.Split('\n').Any(static line =>
+            {
+                var trimmed = line.TrimStart();
+                return trimmed.StartsWith('+') || trimmed.StartsWith('-');
+            }
+        );
     }
 
     private static IEnumerable<LoadoutItemId> GetLoadoutItemIds(CompositeItemModel<EntityId> itemModel)

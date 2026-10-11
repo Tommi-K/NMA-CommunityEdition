@@ -216,6 +216,28 @@
                                                   ButtonSize="Toolbar" />
                         </ItemsControl>
 
+                        <!-- mod list import/export button group -->
+                        <ItemsControl x:Name="ModListControlGroup">
+
+                            <controls:StandardButton x:Name="ImportModListButton"
+                                                     Text="Import"
+                                                     Type="Tertiary"
+                                                     Size="Toolbar"
+                                                     Fill="None"
+                                                     ShowIcon="Left"
+                                                     LeftIcon="{x:Static icons:IconValues.FileImportOutline}"
+                                                     ToolTip.Tip="Apply a Mod Organizer modlist.txt and/or plugins.txt to this list" />
+
+                            <controls:StandardButton x:Name="ExportModListButton"
+                                                     Text="Export"
+                                                     Type="Tertiary"
+                                                     Size="Toolbar"
+                                                     Fill="None"
+                                                     ShowIcon="Left"
+                                                     LeftIcon="{x:Static icons:IconValues.FileExportOutline}"
+                                                     ToolTip.Tip="Save this list as a Mod Organizer modlist.txt and plugins.txt" />
+                        </ItemsControl>
+
                         <!-- selection related button group -->
                         <ItemsControl x:Name="ContextControlGroup">
 

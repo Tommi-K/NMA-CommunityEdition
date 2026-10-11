@@ -1,7 +1,6 @@
 using System.Collections.Frozen;
 using System.Runtime.CompilerServices;
 using Mutagen.Bethesda.Plugins;
-using Mutagen.Bethesda.Plugins.Records;
 using NexusMods.Abstractions.Diagnostics;
 using NexusMods.Abstractions.Diagnostics.Emitters;
 using NexusMods.Abstractions.Diagnostics.References;
@@ -31,9 +30,9 @@ public class MissingMasterEmitter : ILoadoutDiagnosticEmitter
     {
         await Task.Yield();
         
-        var plugins = syncTree.Where(static node =>
+        var plugins = syncTree.Where(node =>
             node.Value.HaveLoadout &&
-            KnownCEExtensions.Plugins.Contains(node.Key.Extension) &&
+            _game.PluginExtensions.Contains(node.Key.Extension) &&
             node.Key.Parent == KnownPaths.Data);
         
         // Index the plugins in the loadout
@@ -41,32 +40,32 @@ public class MissingMasterEmitter : ILoadoutDiagnosticEmitter
         foreach (var item in LoadoutItem.FindByLoadout(loadout.Db, loadout).OfTypeLoadoutItemWithTargetPath())
         {
             var path = (GamePath)item.TargetPath;
-            if (path.LocationId == LocationId.Game && path.Parent == KnownPaths.Data && KnownCEExtensions.Plugins.Contains(path.Extension))
+            if (path.LocationId == LocationId.Game && path.Parent == KnownPaths.Data && _game.PluginExtensions.Contains(path.Extension))
                 pluginsInLoadout[path.FileName] = item.AsLoadoutItem().Parent;
 
         }
 
         // Index the plugins that will be on-disk in the game folder
-        Dictionary<ModKey, (SyncNode Node, IMod Header)> pluginHeaders = new();
+        Dictionary<ModKey, (SyncNode Node, PluginHeader Header)> pluginHeaders = new();
         foreach (var (key, node) in plugins)
         {
             var header = await _game.ParsePlugin(node.Loadout.Hash, key.Path.FileName);
-            if (header == null)
+            if (header is null)
                 continue;
-            pluginHeaders[header.ModKey] = (node, header!);
+            pluginHeaders[header.Value.ModKey] = (node, header.Value);
         }
 
         // For each on-disk plugin, check if it has all the required masters
         foreach (var header in pluginHeaders)
         {
-            foreach (var master in header.Value.Header.MasterReferences)
+            foreach (var master in header.Value.Header.Masters)
             {
                 // If the master is already in the loadout, skip it
-                if (pluginHeaders.ContainsKey(master.Master))
+                if (pluginHeaders.ContainsKey(master))
                     continue;
 
                 // If the master is disabled, emit a diagnostic
-                if (pluginsInLoadout.TryGetValue(master.Master.FileName, out var disabled))
+                if (pluginsInLoadout.TryGetValue(master.FileName, out var disabled))
                 {
                     yield return Diagnostics.CreateMissingMasterIsDisabled(
                         new LoadoutItemGroupReference()
@@ -75,7 +74,7 @@ public class MissingMasterEmitter : ILoadoutDiagnosticEmitter
                             DataId = header.Value.Node.Loadout.EntityId
                         },
                         header.Key,
-                        master.Master,
+                        master,
                         new LoadoutItemGroupReference()
                             {
                                 TxId = loadout.Db.BasisTxId,
@@ -93,7 +92,7 @@ public class MissingMasterEmitter : ILoadoutDiagnosticEmitter
                             DataId = header.Value.Node.Loadout.EntityId
                         },
                         header.Key,
-                        master.Master
+                        master
                     );
                 }
             }

@@ -29,6 +29,7 @@ public record ExperimentalSettings : ISettings
         // rough edges, see "Enable unsupported games" toggle to hide.
         GameId.From("CreationEngine.SkyrimSE"),
         GameId.From("CreationEngine.Fallout4"),
+        GameId.From("CreationEngine.FalloutNV"),
         GameId.From("Larian.BaldursGate3"),
         GameId.From("Bannerlord"),
     ];

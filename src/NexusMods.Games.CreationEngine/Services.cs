@@ -14,6 +14,9 @@ public static class Services
         services.AddGame<Fallout4.Fallout4>();
         services.AddSingleton<ITool>(s => RunGameViaScriptExtenderTool<Fallout4.Fallout4>.Create(s, KnownPaths.F4SELoader));
 
+        services.AddGame<FalloutNV.FalloutNV>();
+        services.AddSingleton<ITool>(s => RunGameViaScriptExtenderTool<FalloutNV.FalloutNV>.Create(s, KnownPaths.NVSELoader));
+
         return services;
     }
 }

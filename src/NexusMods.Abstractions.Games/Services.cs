@@ -15,6 +15,7 @@ public static class Services
     {
         return services
             .AddSingleton<SortOrderManager>()
+            .AddSingleton<IModListService, ModListService>()
             .AddSortOrderItemModel()
             .AddSortOrderQueriesSql()
             .AddLoadoutItemGroupPriorityModel();

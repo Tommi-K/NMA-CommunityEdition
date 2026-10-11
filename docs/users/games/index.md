@@ -33,11 +33,21 @@ The following games are currently supported. Click on the game icon to learn mor
 <img src="../images/GameFallback.webp">
 </object>
 </a>
-<!-- <a href="./SkyrimSE" title="Skyrim Special Edition" alt="Skyrim Special Edition">
+<a href="./SkyrimSE" title="Skyrim Special Edition" alt="Skyrim Special Edition">
 <object style="max-width:150px" data="../images/game-art/skyrim.webp" type="image/png">
 <img src="../images/GameFallback.webp">
 </object>
-</a> -->
+</a>
+<a href="./Fallout4" title="Fallout 4" alt="Fallout 4">
+<object style="max-width:150px" data="../images/game-art/fallout4.webp" type="image/png">
+<img src="../images/GameFallback.webp">
+</object>
+</a>
+<a href="./FalloutNewVegas" title="Fallout: New Vegas" alt="Fallout: New Vegas">
+<object style="max-width:150px" data="../images/game-art/falloutnewvegas.webp" type="image/png">
+<img src="../images/GameFallback.webp">
+</object>
+</a>
 </div>
 
 ---

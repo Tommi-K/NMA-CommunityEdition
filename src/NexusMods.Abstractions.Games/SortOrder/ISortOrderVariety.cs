@@ -94,7 +94,20 @@ public interface ISortOrderVariety
     /// <param name="delta">positive or negative index delta</param>
     [Pure]
     public Task MoveItemDelta(SortOrderId sortOrderId, ISortItemKey sourceItem, int delta, IDb? db = null, CancellationToken token = default);
-    
+
+    /// <summary>
+    /// Rearranges the given items so that they end up in the given order relative to one another.
+    /// </summary>
+    /// <param name="orderedItems">
+    /// The items to rearrange, first one at the lowest index. Keys the sort order does not contain are ignored.
+    /// </param>
+    /// <remarks>
+    /// Only the indexes those items already hold between them are redealt, so every other item of the sort
+    /// order stays where it is.
+    /// </remarks>
+    [Pure]
+    public Task ReorderItems(SortOrderId sortOrderId, ISortItemKey[] orderedItems, IDb? db = null, CancellationToken token = default);
+
     /// <summary>
     /// Reconcile the SortOrder with the latest data from the Db, adding or removing items as necessary.
     /// </summary>
@@ -179,4 +192,13 @@ public interface ISortOrderVariety<TKey, TItem> : ISortOrderVariety
     /// <inheritdoc cref="ISortOrderVariety.MoveItemDelta"/>
     [Pure]
     Task MoveItemDelta(SortOrderId sortOrderId, TKey sourceItem, int delta, IDb? db = null, CancellationToken token = default);
+
+    /// <inheritdoc/>
+    [Pure]
+    Task ISortOrderVariety.ReorderItems(SortOrderId sortOrderId, ISortItemKey[] orderedItems, IDb? db, CancellationToken token) =>
+        ReorderItems(sortOrderId, orderedItems.Cast<TKey>().ToArray(), db, token);
+
+    /// <inheritdoc cref="ISortOrderVariety.ReorderItems"/>
+    [Pure]
+    Task ReorderItems(SortOrderId sortOrderId, TKey[] orderedItems, IDb? db = null, CancellationToken token = default);
 }

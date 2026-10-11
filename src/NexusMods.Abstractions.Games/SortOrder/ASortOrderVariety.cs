@@ -200,6 +200,53 @@ public abstract class ASortOrderVariety<TKey, TReactiveSortItem, TItemLoadoutDat
     }
 
     /// <inheritdoc />
+    public async Task ReorderItems(SortOrderId sortOrderId, TKey[] orderedItems, IDb? db = null, CancellationToken token = default)
+    {
+        var dbToUse = db ?? Connection.Db;
+
+        var stagingList = RetrieveSortOrder(sortOrderId, dbToUse).ToList();
+
+        // The positions the named items hold between them. Redealing only those positions leaves every
+        // item the caller didn't name exactly where it was.
+        var slots = new List<int>(capacity: orderedItems.Length);
+        var ordered = new List<TItemSortData>(capacity: orderedItems.Length);
+        var seen = new HashSet<TKey>();
+
+        foreach (var key in orderedItems)
+        {
+            if (!seen.Add(key)) continue;
+
+            var index = stagingList.FindIndex(item => item.Key.Equals(key));
+            if (index == -1)
+            {
+                _logger.LogDebug("Skipping item {ItemKey}: not part of sort order {SortOrderId}", key, sortOrderId);
+                continue;
+            }
+
+            slots.Add(index);
+            ordered.Add(stagingList[index]);
+        }
+
+        slots.Sort();
+
+        for (var i = 0; i < slots.Count; i++)
+        {
+            stagingList[slots[i]] = ordered[i];
+        }
+
+        for (var i = 0; i < stagingList.Count; i++)
+        {
+            stagingList[i].SortIndex = i;
+        }
+
+        if (token.IsCancellationRequested) return;
+
+        var succeeded = await TryPersistSortOrder(sortOrderId, stagingList, dbToUse, token);
+        if (!succeeded)
+            _logger.LogWarning("ReorderItems for sort order {SortOrderId} did not persist (data race)", sortOrderId);
+    }
+
+    /// <inheritdoc />
     public virtual async ValueTask ReconcileSortOrder(SortOrderId sortOrderId, IDb? referenceDb = null, CancellationToken token = default)
     {
         // If this is passed a specific database, don't retry the reconciliation using the most recent database.

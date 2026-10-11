@@ -15,6 +15,10 @@
       <EmbeddedResource Include="Resources\Fallout4\thumbnail.webp" />
       <None Remove="Resources\Fallout4\tile.webp" />
       <EmbeddedResource Include="Resources\Fallout4\tile.webp" />
+      <None Remove="Resources\FalloutNV\thumbnail.webp" />
+      <EmbeddedResource Include="Resources\FalloutNV\thumbnail.webp" />
+      <None Remove="Resources\FalloutNV\tile.webp" />
+      <EmbeddedResource Include="Resources\FalloutNV\tile.webp" />
     </ItemGroup>
     <ItemGroup>
       <PackageReference Include="Mutagen.Bethesda.Fallout4" />

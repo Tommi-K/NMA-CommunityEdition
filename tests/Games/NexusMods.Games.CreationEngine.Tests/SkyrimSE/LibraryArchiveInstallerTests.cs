@@ -92,9 +92,9 @@ public class LibraryArchiveInstallerTests(ITestOutputHelper outputHelper) : AIso
             var fileName = plugin.AsLoadoutItemWithTargetPath().TargetPath.Item3.FileName;
             var header = await ((ICreationEngineGame) Game).ParsePlugin(plugin.Hash, fileName);
             var index = 0;
-            foreach (var masterRef in header!.MasterReferences)
+            foreach (var master in header!.Value.Masters)
             {
-                data.Add((fileName, index, masterRef.Master.FileName.ToString(), masterRef.Master.Type));
+                data.Add((fileName, index, master.FileName.ToString(), master.Type));
                 index++;
             }
         }

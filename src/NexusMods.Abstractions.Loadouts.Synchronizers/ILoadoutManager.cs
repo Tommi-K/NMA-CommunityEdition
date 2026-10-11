@@ -120,4 +120,18 @@ public interface ILoadoutManager
     /// Make items in <paramref name="winnerIds"/> win all file conflicts.
     /// </summary>
     ValueTask WinAllFileConflicts(LoadoutItemGroupPriorityId[] winnerIds);
+
+    /// <summary>
+    /// Rearranges the conflict priorities of a loadout's mods so that the given ones end up in the
+    /// given order relative to one another.
+    /// </summary>
+    /// <param name="orderedGroupIds">
+    /// The groups to rearrange, in ascending priority: the last one wins file conflicts against the others.
+    /// Ids the loadout has no priority for are ignored.
+    /// </param>
+    /// <remarks>
+    /// Only the positions those groups already hold between them are redealt, so every other mod of the
+    /// loadout keeps the priority it had and goes on winning the conflicts it won before.
+    /// </remarks>
+    ValueTask ReorderMods(LoadoutId loadoutId, LoadoutItemGroupId[] orderedGroupIds);
 }

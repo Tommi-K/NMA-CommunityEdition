@@ -43,6 +43,9 @@ public interface ILoadoutViewModel : IPageViewModelInterface
     ReactiveCommand<Unit> CommandChangeVisibility { get; }
     ReactiveCommand<Unit> CommandDeleteGroup { get; }
 
+    ReactiveCommand<Unit> CommandImportModList { get; }
+    ReactiveCommand<Unit> CommandExportModList { get; }
+
     // TODO: remove for GA
     bool EnableCollectionSharing { get; }
 }

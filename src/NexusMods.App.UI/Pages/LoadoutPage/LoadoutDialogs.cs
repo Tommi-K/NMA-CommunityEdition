@@ -1,3 +1,5 @@
+using Humanizer;
+using NexusMods.Abstractions.Games;
 using NexusMods.App.UI.Dialog;
 using NexusMods.App.UI.Dialog.Enums;
 using NexusMods.UI.Sdk.Dialog;
@@ -56,6 +58,126 @@ public static class LoadoutDialogs
     }
 
     
+
+    /// <summary>
+    /// Asks before replacing files already in the chosen folder, which is easy to hit when the user
+    /// picks a Mod Organizer profile folder.
+    /// </summary>
+    public static IDialog OverwriteModListFiles(string[] fileNames, string directory)
+    {
+        return DialogFactory.CreateStandardDialog(
+            fileNames.Length == 1 ? $"Replace {fileNames[0]}?" : "Replace existing files?",
+            new StandardDialogParameters()
+            {
+                Text = $"""
+                        {string.Join(" and ", fileNames)} already exist{(fileNames.Length == 1 ? "s" : string.Empty)} in:
+
+                        {directory}
+
+                        Exporting will overwrite them.
+                        """,
+            },
+            [
+                DialogStandardButtons.Cancel,
+                new DialogButtonDefinition(
+                    "Replace",
+                    ButtonDefinitionId.Accept,
+                    ButtonAction.Accept,
+                    ButtonStyling.Destructive
+                ),
+            ],
+            DialogWindowSize.Small
+        );
+    }
+
+    /// <summary>
+    /// Asks the user to confirm an import, spelling out what it is about to change.
+    /// </summary>
+    public static IDialog ImportModList(string scopeDescription, bool hasModList, bool hasPluginList)
+    {
+        var changes = new List<string>();
+        if (hasModList) changes.Add($"• Reorder {scopeDescription} and switch them on or off to match modlist.txt");
+        if (hasPluginList) changes.Add("• Set the load order to match plugins.txt");
+
+        return DialogFactory.CreateStandardDialog(
+            "Import mod list",
+            new StandardDialogParameters()
+            {
+                Text = $"""
+                        This will:
+
+                        {string.Join("\n", changes)}
+
+                        Mods the files do not mention keep their current order and stay as they are. Mods
+                        the files name but you have not installed are listed afterwards so you can add them.
+                        """,
+                Icon = IconValues.PictogramPlaylistAdd,
+            },
+            [
+                DialogStandardButtons.Cancel,
+                new DialogButtonDefinition(
+                    "Import",
+                    ButtonDefinitionId.Accept,
+                    ButtonAction.Accept,
+                    ButtonStyling.Primary
+                ),
+            ]
+        );
+    }
+
+    /// <summary>
+    /// Reports what an import changed and which names it could not place.
+    /// </summary>
+    public static IDialog ModListImported(ModListImportResult result)
+    {
+        var lines = new List<string>();
+
+        if (result.ModListStatus == ModListImportStatus.Applied)
+        {
+            lines.Add($"Ordered {"mod".ToQuantity(result.ModsOrdered)}, switched {result.ModsEnabled} on and {result.ModsDisabled} off.");
+        }
+
+        switch (result.PluginListStatus)
+        {
+            case ModListImportStatus.Applied:
+                lines.Add($"Set the load order of {"plugin".ToQuantity(result.PluginsOrdered)}.");
+                break;
+            case ModListImportStatus.NotSupported:
+                lines.Add("This game builds its load order from the plugins themselves, so plugins.txt was not applied.");
+                break;
+        }
+
+        AppendUnmatched(lines, "Named in modlist.txt but not installed", result.UnmatchedMods);
+        AppendUnmatched(lines, "Named in plugins.txt but not in this loadout", result.UnmatchedPlugins);
+
+        return DialogFactory.CreateStandardDialog(
+            "Mod list imported",
+            new StandardDialogParameters()
+            {
+                Text = string.Join("\n\n", lines),
+                Icon = IconValues.PictogramCelebrate,
+            },
+            [
+                new DialogButtonDefinition("Close", ButtonDefinitionId.Close, ButtonAction.Reject),
+            ]
+        );
+    }
+
+    /// <summary>
+    /// The number of names a result dialog spells out before it falls back to a count.
+    /// </summary>
+    private const int MaxUnmatchedNamesShown = 15;
+
+    private static void AppendUnmatched(List<string> lines, string heading, string[] names)
+    {
+        if (names.Length == 0) return;
+
+        var shown = names.Take(MaxUnmatchedNamesShown).Select(static name => "• " + name);
+        var remainder = names.Length - MaxUnmatchedNamesShown;
+
+        lines.Add($"{heading} ({names.Length}):\n{string.Join("\n", shown)}"
+                  + (remainder > 0 ? $"\n• and {remainder} more" : string.Empty));
+    }
 
     public static IDialog ShareCollectionSuccess(string collectionName)
     {

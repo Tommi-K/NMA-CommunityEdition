@@ -51,6 +51,38 @@ This page includes a summary of the information available on the individual game
 | :fontawesome-brands-xbox: [Xbox Game Pass (PC)](https://www.xbox.com/en-GB/games/store/mount-blade-ii-bannerlord/9pdhwz7x3p03) | :material-close-thick:[^4] | :material-close-thick: | :material-close-thick: |
 <sub>[Game not detected? Report an issue here.](https://github.com/Nexus-Mods/NexusMods.App/issues/new?template=01-game-not-found.yaml)</sub>
 
+## Skyrim Special Edition
+[Learn more about this game.](./SkyrimSE.md)
+
+|| :fontawesome-brands-windows: Windows |  :fontawesome-brands-linux: Linux | :fontawesome-brands-apple: macOS |
+|---|---|---|---|
+| :fontawesome-brands-steam: [Steam](https://store.steampowered.com/app/489830/The_Elder_Scrolls_V_Skyrim_Special_Edition/) | :material-check-circle: | :material-check-circle:[^6] | :material-close-thick: |
+| <img src="../../images/GOG.com_logo_white.svg" alt="GOG" width="14"/> [GOG](https://www.gog.com/en/game/the_elder_scrolls_v_skyrim_special_edition) | :material-check-circle:[^1] | :material-check-circle:[^1][^2] | :material-close-thick: |
+| <img src="../../images/epic-games.svg" alt="Epic Games Store" width="14"/> Epic Games Store[^9] | :material-check-circle: | :material-check-circle:[^2] | :material-close-thick: |
+| :fontawesome-brands-xbox: [Xbox Game Pass (PC)](https://www.xbox.com/en-GB/games/store/the-elder-scrolls-v-skyrim-special-edition/9p81d4lnmnw3) | :material-check-circle:[^7] | :material-close-thick: | :material-close-thick: |
+<sub>[Game not detected? Report an issue here.](https://github.com/Tommi-K/NMA-CommunityEdition/issues/new/choose)</sub>
+
+## Fallout 4
+[Learn more about this game.](./Fallout4.md)
+
+|| :fontawesome-brands-windows: Windows |  :fontawesome-brands-linux: Linux | :fontawesome-brands-apple: macOS |
+|---|---|---|---|
+| :fontawesome-brands-steam: [Steam](https://store.steampowered.com/app/377160/Fallout_4/) | :material-check-circle: | :material-check-circle:[^6] | :material-close-thick: |
+| <img src="../../images/GOG.com_logo_white.svg" alt="GOG" width="14"/> [GOG](https://www.gog.com/en/game/fallout_4_game_of_the_year_edition) | :material-check-circle:[^1] | :material-check-circle:[^1][^2] | :material-close-thick: |
+| <img src="../../images/epic-games.svg" alt="Epic Games Store" width="14"/> [Epic Games Store](https://store.epicgames.com/en-US/p/fallout-4) | :material-check-circle: | :material-check-circle:[^2] | :material-close-thick: |
+| :fontawesome-brands-xbox: [Xbox Game Pass (PC)](https://www.xbox.com/en-GB/games/store/fallout-4/bb8t6pt0d5qq) | :material-check-circle:[^7] | :material-close-thick: | :material-close-thick: |
+<sub>[Game not detected? Report an issue here.](https://github.com/Tommi-K/NMA-CommunityEdition/issues/new/choose)</sub>
+
+## Fallout: New Vegas
+[Learn more about this game.](./FalloutNewVegas.md)
+
+|| :fontawesome-brands-windows: Windows |  :fontawesome-brands-linux: Linux | :fontawesome-brands-apple: macOS |
+|---|---|---|---|
+| :fontawesome-brands-steam: [Steam](https://store.steampowered.com/app/22380/Fallout_New_Vegas/) | :material-check-circle: | :material-check-circle:[^6] | :material-close-thick: |
+| <img src="../../images/GOG.com_logo_white.svg" alt="GOG" width="14"/> [GOG](https://www.gog.com/en/game/fallout_new_vegas_ultimate_edition_game) | :material-check-circle:[^1] | :material-check-circle:[^1][^2] | :material-close-thick: |
+| <img src="../../images/epic-games.svg" alt="Epic Games Store" width="14"/> [Epic Games Store](https://store.epicgames.com/en-US/p/fallout-new-vegas) | :material-close-thick:[^8] | :material-close-thick:[^8] | :material-close-thick: |
+<sub>[Game not detected? Report an issue here.](https://github.com/Tommi-K/NMA-CommunityEdition/issues/new/choose)</sub>
+
 
 <!-- Combined -->
 [^1]: Offline backup installs from GOG.com cannot be detected automatically.
@@ -58,3 +90,7 @@ This page includes a summary of the information available on the individual game
 [^3]: Epic Games Store is temporarily unsupported. <a href="https://github.com/Nexus-Mods/NexusMods.App/issues/3116">More.</a>
 [^4]: Xbox Game Pass for PC is not yet supported. <a href="https://github.com/Nexus-Mods/NexusMods.App/issues/1476">More.</a>
 [^5]: Native Linux only. Proton is not supported.
+[^6]: Runs through Proton. This game has no native Linux version.
+[^7]: Xbox Game Pass detection is off by default. Turn on "Enable Xbox Game Pass" in the :material-cog: Settings menu.
+[^8]: An Epic copy is not detected automatically and has to be added by hand. Once added it is managed like any other installation.
+[^9]: The app looks for an Epic installation, but this game no longer has a listing on the Epic Games Store.
