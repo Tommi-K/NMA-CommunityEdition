@@ -156,6 +156,13 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
 
         _logger.LogInformation("Handling `{Scheme}` link from the in-app browser", uri.Scheme);
 
+        // A tab with a request id on it was opened by the app for this one file, so the handler
+        // is told it asked for this itself. A tab the user is browsing in is not: a link they
+        // press there is theirs, and is checked the same way one from their own browser is.
+        var source = Context?.DownloadRequestId is null
+            ? ProtocolLinkSource.InApp
+            : ProtocolLinkSource.AppRequested;
+
         // Fire and forget: the handler starts a download job and the browser must not block.
         _ = Task.Run(async () =>
         {
@@ -164,7 +171,7 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
                 // Said to come from inside the app, so handling it doesn't pull the window
                 // in front of whatever the user has gone off to do: a collection downloaded
                 // without premium hands one of these over per mod.
-                await handler.Handle(url, CancellationToken.None, ProtocolLinkSource.InApp);
+                await handler.Handle(url, CancellationToken.None, source);
             }
             catch (Exception e)
             {

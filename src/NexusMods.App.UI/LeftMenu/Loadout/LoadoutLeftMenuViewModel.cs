@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NexusMods.Abstractions.Collections;
 using NexusMods.Abstractions.Diagnostics;
+using NexusMods.Abstractions.Games;
 using NexusMods.Abstractions.Loadouts;
 using NexusMods.Abstractions.NexusModsLibrary.Models;
 using NexusMods.Sdk.Settings;
@@ -17,6 +18,7 @@ using NexusMods.App.UI.Overlays;
 using NexusMods.App.UI.Pages;
 using NexusMods.App.UI.Pages.CollectionDownload;
 using NexusMods.App.UI.Pages.Diagnostics;
+using NexusMods.App.UI.Pages.Dlc;
 using NexusMods.App.UI.Pages.LibraryPage;
 using NexusMods.App.UI.Pages.LoadoutGroupFilesPage;
 using NexusMods.App.UI.Pages.LoadoutPage;
@@ -46,6 +48,7 @@ public class LoadoutLeftMenuViewModel : AViewModel<ILoadoutLeftMenuViewModel>, I
     public ILeftMenuItemViewModel LeftMenuItemNewCollection { get; }
     public ILeftMenuItemViewModel LeftMenuItemHealthCheck { get; }
     [Reactive] public ILeftMenuItemViewModel? LeftMenuItemExternalChanges { get; private set; }
+    public ILeftMenuItemViewModel? LeftMenuItemDlc { get; }
     
     [Reactive] public bool HasSingleCollection { get; private set; } = true;
     public IApplyControlViewModel ApplyControlViewModel { get; }
@@ -230,6 +233,27 @@ public class LoadoutLeftMenuViewModel : AViewModel<ILoadoutLeftMenuViewModel>, I
             ToolTip = new StringComponent(Language.LoadoutLeftMenuViewModel_Diagnostics_ToolTip),
         };
         
+        // DLC - only for games that ship optional content of their own
+        LeftMenuItemDlc = game is IGameWithDlc
+            ? new LeftMenuItemViewModel(
+                workspaceController,
+                WorkspaceId,
+                new PageData
+                {
+                    FactoryId = DlcPageFactory.StaticId,
+                    Context = new DlcPageContext
+                    {
+                        LoadoutId = loadoutContext.LoadoutId,
+                    },
+                }
+            )
+            {
+                Text = new StringComponent(Language.DlcPage_Title),
+                Icon = IconValues.Package,
+                ToolTip = new StringComponent(Language.DlcPage_ToolTip),
+            }
+            : null;
+
         // Apply Control
         ApplyControlViewModel = new ApplyControlViewModel(loadoutContext.LoadoutId,
             serviceProvider,

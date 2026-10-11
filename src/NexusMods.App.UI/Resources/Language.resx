@@ -861,6 +861,18 @@ To apply changes or launch the game again, please close the game first.</value>
     <data name="LoadoutView_Title_Installed_Mods_Default" xml:space="preserve">
         <value>All</value>
     </data>
+    <data name="DlcPage_Title" xml:space="preserve">
+        <value>DLC</value>
+    </data>
+    <data name="DlcPage_Description" xml:space="preserve">
+        <value>Switch the game's own add-ons on or off. Their files stay installed - a disabled add-on is simply left out of the load order, which takes effect the next time you apply. Mods that need an add-on you switch off will report a missing master in Health Check.</value>
+    </data>
+    <data name="DlcPage_Empty" xml:space="preserve">
+        <value>This game's add-ons aren't installed, so there is nothing to switch here.</value>
+    </data>
+    <data name="DlcPage_ToolTip" xml:space="preserve">
+        <value>Turn the game's own add-ons on or off.</value>
+    </data>
     <data name="LoadoutLeftMenuViewModel_External_Changes" xml:space="preserve">
         <value>External Changes</value>
     </data>

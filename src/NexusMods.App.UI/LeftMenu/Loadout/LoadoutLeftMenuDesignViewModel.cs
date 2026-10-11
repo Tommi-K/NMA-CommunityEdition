@@ -41,6 +41,12 @@ public class LoadoutLeftMenuDesignViewModel : AViewModel<ILoadoutLeftMenuViewMod
         Icon = IconValues.Cog,
     };
 
+    public ILeftMenuItemViewModel LeftMenuItemDlc { get; } = new LeftMenuItemDesignViewModel
+    {
+        Text = new StringComponent(Language.DlcPage_Title),
+        Icon = IconValues.Package,
+    };
+
     public LoadoutLeftMenuDesignViewModel()
     {
         LeftMenuCollectionItems = new ReadOnlyObservableCollection<ILeftMenuItemViewModel>([

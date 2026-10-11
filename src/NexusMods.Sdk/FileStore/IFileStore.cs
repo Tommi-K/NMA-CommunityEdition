@@ -51,6 +51,7 @@ public interface IFileStore
     /// </summary>
     /// <param name="files"></param>
     /// <param name="token"></param>
+    /// <param name="progress">Reports the number of files extracted so far out of the total.</param>
     /// <returns></returns>
     Task ExtractFiles(IEnumerable<(Hash Hash, AbsolutePath Dest)> files, CancellationToken token = default, Action<(int Current, int Max)>? progress = null);
 

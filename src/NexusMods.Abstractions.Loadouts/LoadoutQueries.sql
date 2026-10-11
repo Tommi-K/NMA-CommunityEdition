@@ -9,6 +9,8 @@ SELECT Id FROM mdb_Loadout(Db=>db) WHERE Id = loadoutId
 UNION ALL
 SELECT Id FROM MDB_LOADOUTITEMGROUPPRIORITY(Db=>db) WHERE Loadout = loadoutId
 UNION ALL
+SELECT Id FROM MDB_DISABLEDGAMEDLC(Db=>db) WHERE Loadout = loadoutId
+UNION ALL
 SELECT sortItem.Id FROM mdb_SortOrder(Db=>db) sortOrder
     LEFT JOIN mdb_SortOrderItem(Db=>db) sortItem ON sortOrder.Id = sortItem.ParentSortOrder
     WHERE sortOrder.Loadout = loadoutId;

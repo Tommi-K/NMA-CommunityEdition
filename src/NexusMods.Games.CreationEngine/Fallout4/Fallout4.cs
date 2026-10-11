@@ -23,7 +23,7 @@ using NexusMods.Sdk.IO;
 
 namespace NexusMods.Games.CreationEngine.Fallout4;
 
-public class Fallout4 : ICreationEngineGame, IGameData<Fallout4>
+public class Fallout4 : ICreationEngineGame, IGameWithDlc, IGameData<Fallout4>
 {
     private readonly IStreamSourceDispatcher _streamSource;
 
@@ -119,4 +119,22 @@ public class Fallout4 : ICreationEngineGame, IGameData<Fallout4>
     }
 
     public GamePath PluginsFile => Fallout4KnownPaths.PluginsFile;
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Bethesda's own add-ons, in release order. Fallout 4 activates these through
+    /// <c>plugins.txt</c> (its <c>Fallout4.ccc</c> lists only Creation Club content), so leaving a
+    /// plugin out of the generated list is enough to switch the content off - the matching
+    /// <c>.ba2</c> archives are named after the plugin and are loaded with it.
+    /// </remarks>
+    public IReadOnlyList<GameDlc> Dlc { get; } =
+    [
+        new GameDlc { Id = "DLCRobot", Name = "Automatron", Plugin = KnownPaths.Data / "DLCRobot.esm" },
+        new GameDlc { Id = "DLCworkshop01", Name = "Wasteland Workshop", Plugin = KnownPaths.Data / "DLCworkshop01.esm" },
+        new GameDlc { Id = "DLCCoast", Name = "Far Harbor", Plugin = KnownPaths.Data / "DLCCoast.esm" },
+        new GameDlc { Id = "DLCworkshop02", Name = "Contraptions Workshop", Plugin = KnownPaths.Data / "DLCworkshop02.esm" },
+        new GameDlc { Id = "DLCworkshop03", Name = "Vault-Tec Workshop", Plugin = KnownPaths.Data / "DLCworkshop03.esm" },
+        new GameDlc { Id = "DLCNukaWorld", Name = "Nuka-World", Plugin = KnownPaths.Data / "DLCNukaWorld.esm" },
+        new GameDlc { Id = "DLCUltraHighResolution", Name = "High Resolution Texture Pack", Plugin = KnownPaths.Data / "DLCUltraHighResolution.esm" },
+    ];
 }

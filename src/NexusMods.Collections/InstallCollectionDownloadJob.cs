@@ -417,33 +417,106 @@ public class InstallCollectionDownloadJob : IJobDefinitionWithStart<InstallColle
         FrozenDictionary<RelativePath, LibraryFile.ReadOnly> collectionFiles,
         CancellationToken cancellationToken)
     {
-        if (!srcFiles.TryGetValue(srcPath, out var srcFile)) throw new KeyNotFoundException($"Collection download archive doesn't contain file `{srcPath}`");
-
         var patchName = RelativePath.FromUnsanitizedInput($"patches/{CollectionMod.Name}/{srcPath}.diff");
         if (!collectionFiles.TryGetValue(patchName, out var patchFile)) throw new KeyNotFoundException($"Collection archive doesn't contain file `{patchName}`");
 
-        var patchedFileStream = new MemoryStream(capacity: (int)srcFile.Size.Value);
-        var (originalFileHashes, patchedFileHashes) = await PatchFile(fileToPatch: srcFile, patchDataFile: patchFile, expectedHash: expectedHash, outputStream: patchedFileStream, cancellationToken: cancellationToken);
+        var candidateCount = 0;
+        foreach (var (candidatePath, srcFile) in FindFilesToPatch(srcPath, srcFiles))
+        {
+            candidateCount++;
+            var patchedFileStream = new MemoryStream(capacity: (int)srcFile.Size.Value);
+            var hashes = await TryPatchFile(fileToPatch: srcFile, patchDataFile: patchFile, expectedHash: expectedHash, outputStream: patchedFileStream, cancellationToken: cancellationToken);
 
-        var patchedFile = new PatchedFile(
-            FileName: srcPath,
-            PatchedFileHashes: patchedFileHashes,
-            OriginalFileHashes: originalFileHashes
-        );
+            if (hashes is null)
+            {
+                // Not the file the patch was made against, keep looking.
+                await patchedFileStream.DisposeAsync();
+                continue;
+            }
 
-        Debug.Assert(Size.FromLong(patchedFileStream.Length) == patchedFileHashes.Size.Value);
-        Logger.LogDebug("Patching result: `{PatchedFile}`", patchedFile);
+            var (originalFileHashes, patchedFileHashes) = hashes.Value;
+            if (candidatePath != srcPath) Logger.LogDebug("Patch target `{SrcPath}` resolved to `{CandidatePath}` in the download archive", srcPath, candidatePath);
 
-        patchedFileStream.Position = 0;
-        return (patchedFile, patchedFileStream);
+            var patchedFile = new PatchedFile(
+                FileName: srcPath,
+                PatchedFileHashes: patchedFileHashes,
+                OriginalFileHashes: originalFileHashes
+            );
+
+            Debug.Assert(Size.FromLong(patchedFileStream.Length) == patchedFileHashes.Size.Value);
+            Logger.LogDebug("Patching result: `{PatchedFile}`", patchedFile);
+
+            patchedFileStream.Position = 0;
+            return (patchedFile, patchedFileStream);
+        }
+
+        if (candidateCount == 0) throw new KeyNotFoundException($"Collection download archive doesn't contain file `{srcPath}`");
+        throw new InvalidOperationException($"None of the {candidateCount} candidate(s) for `{srcPath}` in the collection download archive have the expected CRC32 hash `{expectedHash}`");
     }
 
-    private async ValueTask<(MultiHash OriginalFileHashes, MultiHash PatchedFileHashes)> PatchFile(LibraryFile.ReadOnly fileToPatch, LibraryFile.ReadOnly patchDataFile, Crc32Value expectedHash, Stream outputStream, CancellationToken cancellationToken)
+    /// <summary>
+    /// Yields the files in the mod's download archive that a patch might apply to, best guess first.
+    /// </summary>
+    /// <remarks>
+    /// The patch paths in the collection are paths to the mod's files as deployed, which needn't be
+    /// where they sit in the archive. Plenty of archives wrap their contents in a `Data/`, version,
+    /// or FOMOD option folder, and a FOMOD can rename a file on its way out: the `See Through
+    /// Scopes` MCM menu installs `config-replacer.json` as `config.json`. Vortex patches the
+    /// deployed file, so none of that shows up in `collection.json` and looking the path up as
+    /// written finds the wrong file or nothing at all. We work outwards from the path as written
+    /// and leave it to the caller to confirm each guess against the CRC32 hash the collection gives
+    /// for the file before it is patched.
+    /// </remarks>
+    private static IEnumerable<KeyValuePair<RelativePath, LibraryFile.ReadOnly>> FindFilesToPatch(
+        RelativePath srcPath,
+        FrozenDictionary<RelativePath, LibraryFile.ReadOnly> srcFiles)
+    {
+        var seen = new HashSet<RelativePath>();
+        var folders = new HashSet<RelativePath>();
+
+        // The path as the collection spells it.
+        if (srcFiles.TryGetValue(srcPath, out var exactMatch) && seen.Add(srcPath))
+        {
+            folders.Add(srcPath.Parent);
+            yield return new KeyValuePair<RelativePath, LibraryFile.ReadOnly>(srcPath, exactMatch);
+        }
+
+        // The same path, below a prefix the deployed mod doesn't have.
+        foreach (var candidate in srcFiles.Where(kv => kv.Key.EndsWith(srcPath)).OrderBy(static kv => kv.Key.Depth))
+        {
+            if (!seen.Add(candidate.Key)) continue;
+            folders.Add(candidate.Key.Parent);
+            yield return candidate;
+        }
+
+        // The same file name, somewhere else in the archive entirely.
+        foreach (var candidate in srcFiles.Where(kv => kv.Key.FileName == srcPath.FileName).OrderBy(static kv => kv.Key.Depth))
+        {
+            if (!seen.Add(candidate.Key)) continue;
+            folders.Add(candidate.Key.Parent);
+            yield return candidate;
+        }
+
+        // A file that gets renamed as it is installed, which only leaves its folder and kind to go
+        // on. Deliberately limited to the folders the search above turned up, so that a patch we
+        // genuinely can't place doesn't end up reading a multi-gigabyte archive to find out.
+        foreach (var candidate in srcFiles
+            .Where(kv => kv.Key.Extension == srcPath.Extension && folders.Contains(kv.Key.Parent))
+            .OrderBy(static kv => kv.Value.Size.Value))
+        {
+            if (seen.Add(candidate.Key)) yield return candidate;
+        }
+    }
+
+    /// <summary>
+    /// Applies a patch, or returns `null` when <paramref name="fileToPatch"/> isn't the file the patch was made against.
+    /// </summary>
+    private async ValueTask<(MultiHash OriginalFileHashes, MultiHash PatchedFileHashes)?> TryPatchFile(LibraryFile.ReadOnly fileToPatch, LibraryFile.ReadOnly patchDataFile, Crc32Value expectedHash, Stream outputStream, CancellationToken cancellationToken)
     {
         await using var inputStream = await FileStore.GetFileStream(fileToPatch.Hash, token: cancellationToken);
 
         var originalFileHashes = await MultiHasher.HashStream(inputStream, cancellationToken: cancellationToken);
-        if (originalFileHashes.Crc32 != expectedHash.Value) throw new InvalidOperationException("The source file's CRC32 hash does not match the expected hash.");
+        if (originalFileHashes.Crc32 != expectedHash.Value) return null;
 
         inputStream.Position = 0;
 

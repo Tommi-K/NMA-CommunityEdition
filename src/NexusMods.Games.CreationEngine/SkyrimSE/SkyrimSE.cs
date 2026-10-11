@@ -23,7 +23,7 @@ using NexusMods.Sdk.IO;
 
 namespace NexusMods.Games.CreationEngine.SkyrimSE;
 
-public class SkyrimSE : ICreationEngineGame, IGameData<SkyrimSE>
+public class SkyrimSE : ICreationEngineGame, IGameWithDlc, IGameData<SkyrimSE>
 {
     private readonly IStreamSourceDispatcher _streamSource;
 
@@ -113,4 +113,16 @@ public class SkyrimSE : ICreationEngineGame, IGameData<SkyrimSE>
     }
 
     public GamePath PluginsFile => new(LocationId.AppData, "Plugins.txt");
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The three official add-ons. <c>Update.esm</c> is deliberately absent: it is a patch to the
+    /// base game, not optional content, and the game will not run sanely without it.
+    /// </remarks>
+    public IReadOnlyList<GameDlc> Dlc { get; } =
+    [
+        new GameDlc { Id = "Dawnguard", Name = "Dawnguard", Plugin = KnownPaths.Data / "Dawnguard.esm" },
+        new GameDlc { Id = "HearthFires", Name = "Hearthfire", Plugin = KnownPaths.Data / "HearthFires.esm" },
+        new GameDlc { Id = "Dragonborn", Name = "Dragonborn", Plugin = KnownPaths.Data / "Dragonborn.esm" },
+    ];
 }

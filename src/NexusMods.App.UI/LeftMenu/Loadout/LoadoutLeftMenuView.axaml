@@ -52,6 +52,7 @@
                         <StackPanel Spacing="{StaticResource Spacing-0.5}">
                             <items:LeftMenuItemView x:Name="HealthCheckItem" />
                             <items:LeftMenuItemView x:Name="ExternalChangesItem" />
+                            <items:LeftMenuItemView x:Name="DlcItem" />
                         </StackPanel>
                     </Expander>
                 </StackPanel>

@@ -223,12 +223,17 @@ public partial class ALoadoutSynchronizer : ILoadoutSynchronizer
             if (gamePath == default(GamePath)) throw new Exception($"Item of type `{itemType}` with ID `{tuple.Id}` has no valid game path!");
 
             ref var syncTreeEntry = ref CollectionsMarshal.GetValueRefOrAddDefault(syncTree, gamePath, out var exists);
-            Debug.Assert(!exists, "query should not return duplicate items");
 
             if (exists)
             {
+                // The query groups rows by the exact path, but `GamePath` compares case-insensitively,
+                // so rows whose paths differ only in casing collapse onto one node here: a mod shipping
+                // `Data/video/..` on top of the game's `Data/Video/..` is one node, not two. Resolve
+                // those the way the query resolves same-case rows, by layer, instead of letting row
+                // order decide - otherwise the game file sometimes wins and the mod silently isn't
+                // applied.
                 Logger.LogWarning("Duplicate file for `{Path}`: {Item}", gamePath, tuple);
-                continue;
+                if (SourceLayer(itemType) <= SourceLayer(syncTreeEntry.SourceItemType)) continue;
             }
 
             var loadoutPart = itemType switch
@@ -261,40 +266,119 @@ public partial class ALoadoutSynchronizer : ILoadoutSynchronizer
         return syncTree;
     }
 
+    /// <summary>
+    /// The layer an item sits on in the <c>synchronizer.WinningFiles</c> query; the higher layer wins.
+    /// </summary>
+    private static int SourceLayer(LoadoutSourceItemType itemType) => itemType switch
+    {
+        LoadoutSourceItemType.Game => 0,
+        LoadoutSourceItemType.Loadout => 1,
+        LoadoutSourceItemType.Deleted => 1,
+        LoadoutSourceItemType.Intrinsic => 3,
+        _ => 0,
+    };
+
     /// <inheritdoc />
     public void MergeStates(IEnumerable<PathPartPair> currentState, IEnumerable<PathPartPair> previousTree, Dictionary<GamePath, SyncNode> loadoutItems)
     {
+        // Both disk states come from scanning the game folder, so they carry the casing the files
+        // really have, while the loadout carries whatever casing the mod author used. The two merge
+        // into one node because `GamePath` compares case-insensitively, but a dictionary keeps the
+        // key it saw first - the loadout's - and every disk operation downstream resolves that key
+        // against the real filesystem. On a case-sensitive filesystem the result does not exist, so
+        // a mod replacing `Data/Video/MainMenuLoop.bk2` with `Data/video/MainMenuLoop.bk2` fails the
+        // backup with DirectoryNotFoundException. Re-key to the path on disk so we read, overwrite
+        // and delete the file that is actually there.
+        var realDirectories = new Dictionary<GamePath, GamePath>();
+
         foreach (var node in previousTree)
         {
-            ref var existing = ref CollectionsMarshal.GetValueRefOrAddDefault(loadoutItems, node.Path, out var exists);
-            if (exists)
+            if (loadoutItems.Remove(node.Path, out var existing))
             {
                 existing.Previous = node.Part;
+                loadoutItems.Add(node.Path, existing);
             }
             else
             {
-                existing = new SyncNode
+                loadoutItems.Add(node.Path, new SyncNode
                 {
                     Previous = node.Part,
-                };
+                });
             }
         }
         
         foreach (var node in currentState)
         {
-            ref var existing = ref CollectionsMarshal.GetValueRefOrAddDefault(loadoutItems, node.Path, out var exists);
-            if (exists)
+            if (loadoutItems.Remove(node.Path, out var existing))
             {
                 existing.Disk = node.Part;
+                loadoutItems.Add(node.Path, existing);
             }
             else
             {
-                existing = new SyncNode
+                loadoutItems.Add(node.Path, new SyncNode
                 {
                     Disk = node.Part,
-                };
+                });
+            }
+
+            // Remember the real casing of every directory on disk. The first file in a directory
+            // adds it and any unseen parents, every later file stops at the first key already there.
+            var directory = node.Path.Parent;
+            while (directory.Path != RelativePath.Empty && realDirectories.TryAdd(directory, directory))
+            {
+                directory = directory.Parent;
             }
         }
+
+        RekeyToRealDirectories(loadoutItems, realDirectories);
+    }
+
+    /// <summary>
+    /// Re-keys the nodes that aren't on disk to the real casing of the directories they land in, so a
+    /// file a mod adds beside a game file ends up in the game's own directory instead of a case variant
+    /// of it that the game never reads. Nodes that are on disk already carry the casing of the file.
+    /// </summary>
+    private static void RekeyToRealDirectories(Dictionary<GamePath, SyncNode> loadoutItems, Dictionary<GamePath, GamePath> realDirectories)
+    {
+        if (realDirectories.Count == 0) return;
+
+        List<(GamePath From, GamePath To)> rekeyed = [];
+        foreach (var (path, node) in loadoutItems)
+        {
+            // Nothing to resolve for a file that sits directly in the game location.
+            if (node.HaveDisk || path.Path.Depth == 0) continue;
+
+            var resolved = ResolveRealDirectories(realDirectories, path);
+            if (!string.Equals(resolved.Path.Path, path.Path.Path, StringComparison.Ordinal))
+                rekeyed.Add((path, resolved));
+        }
+
+        foreach (var (from, to) in rekeyed)
+        {
+            // `to` differs from `from` in casing only, so it is the same key to the dictionary and
+            // this can never collide with another node.
+            if (!loadoutItems.Remove(from, out var node)) continue;
+            loadoutItems[to] = node;
+        }
+    }
+
+    /// <summary>
+    /// Rebuilds <paramref name="path"/> with the casing the directories on its way have on disk,
+    /// keeping the parts that don't exist on disk as they are.
+    /// </summary>
+    private static GamePath ResolveRealDirectories(Dictionary<GamePath, GamePath> realDirectories, GamePath path)
+    {
+        var parts = path.Path.GetParts();
+        var current = new GamePath(path.LocationId, RelativePath.Empty);
+
+        for (var i = 0; i < parts.Length - 1; i++)
+        {
+            var candidate = current / parts[i];
+            current = realDirectories.TryGetValue(candidate, out var real) ? real : candidate;
+        }
+
+        return current / parts[^1];
     }
 
     /// <inheritdoc />

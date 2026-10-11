@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 
+using NexusMods.Abstractions.Games;
 using NexusMods.Abstractions.Loadouts;
 using NexusMods.Abstractions.Loadouts.Sorting;
 using NexusMods.Abstractions.Loadouts.Synchronizers;
@@ -37,6 +38,8 @@ public class PluginsFile : IIntrinsicFile
     
     public async Task Write(Stream stream, Loadout.ReadOnly loadout, Dictionary<GamePath, SyncNode> syncTree)
     {
+        var disabledDlcPlugins = DisabledDlcPlugins(loadout);
+
         // MakeMetadata returns null when the plugin can't be parsed (usually
         // because the vanilla file isn't backed up yet on a fresh loadout).
         // We drop those entries instead of NRE-ing; they'll be picked up on
@@ -44,6 +47,7 @@ public class PluginsFile : IIntrinsicFile
         var plugins = await syncTree
             .Where(p => p.Key.Parent == KnownPaths.Data && KnownCEExtensions.PluginFiles.Contains(p.Key.Extension))
             .Where(p => p.Value.HaveLoadout)
+            .Where(p => !disabledDlcPlugins.Contains(p.Key))
             .ToAsyncEnumerable()
             .SelectAwait(MakeMetadata)
             .Where(m => m.HasValue)
@@ -115,6 +119,34 @@ public class PluginsFile : IIntrinsicFile
     private static ModKey IdSelector(Metadata metadata)
     {
         return metadata.ModKey;
+    }
+
+    private static readonly IReadOnlySet<GamePath> NoDisabledPlugins = new HashSet<GamePath>();
+
+    /// <summary>
+    /// The plugins of the game's own optional content that the user switched off for this loadout.
+    /// </summary>
+    /// <remarks>
+    /// Those files stay in the game folder - they belong to the installation, and the synchronizer
+    /// has no business deleting them. What makes the content load is the plugin being listed here,
+    /// so leaving the plugin out is what switches it off. A plugin that other plugins declare as a
+    /// master simply becomes a missing master, which the sorter skips and the diagnostics report.
+    /// </remarks>
+    private IReadOnlySet<GamePath> DisabledDlcPlugins(Loadout.ReadOnly loadout)
+    {
+        if (_game is not IGameWithDlc gameWithDlc) return NoDisabledPlugins;
+
+        var disabledIds = DisabledGameDlc
+            .FindByLoadout(loadout.Db, loadout.Id)
+            .Select(static entry => entry.DlcId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (disabledIds.Count == 0) return NoDisabledPlugins;
+
+        return gameWithDlc.Dlc
+            .Where(dlc => disabledIds.Contains(dlc.Id))
+            .Select(static dlc => dlc.Plugin)
+            .ToHashSet();
     }
 
     private async ValueTask<Metadata?> MakeMetadata(KeyValuePair<GamePath, SyncNode> arg)

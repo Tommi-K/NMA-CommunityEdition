@@ -1,0 +1,61 @@
+<reactiveUi:ReactiveUserControl
+    x:TypeArguments="dlc:IDlcPageViewModel"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:reactiveUi="http://reactiveui.net"
+    xmlns:dlc="clr-namespace:NexusMods.App.UI.Pages.Dlc"
+    mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+    x:Class="NexusMods.App.UI.Pages.Dlc.DlcPageView">
+
+    <ScrollViewer>
+        <StackPanel Margin="24" Spacing="{StaticResource Spacing-2}">
+
+            <StackPanel Spacing="{StaticResource Spacing-1}">
+                <TextBlock x:Name="HeaderText" Theme="{StaticResource HeadingSMSemiTheme}" />
+                <TextBlock x:Name="SubHeaderText"
+                           Theme="{StaticResource BodySMNormalTheme}"
+                           TextWrapping="Wrap" />
+            </StackPanel>
+
+            <TextBlock x:Name="EmptyText"
+                       Theme="{StaticResource BodyMDNormalTheme}"
+                       TextWrapping="Wrap"
+                       IsVisible="False" />
+
+            <ItemsControl x:Name="DlcItems">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Spacing="{StaticResource Spacing-1}" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type dlc:IDlcItemViewModel}">
+                        <Border Padding="12"
+                                CornerRadius="{StaticResource Rounded-md}"
+                                Background="{StaticResource SurfaceMidBrush}">
+                            <Grid ColumnDefinitions="*, Auto">
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                    <TextBlock Text="{CompiledBinding Name}"
+                                               Theme="{StaticResource BodyMDSemiTheme}" />
+                                    <TextBlock Text="{CompiledBinding PluginName}"
+                                               Theme="{StaticResource BodySMNormalTheme}"
+                                               Foreground="{StaticResource NeutralSubduedBrush}" />
+                                </StackPanel>
+                                <ToggleSwitch Grid.Column="1"
+                                              Classes="ExtraSmall"
+                                              VerticalAlignment="Center"
+                                              IsChecked="{CompiledBinding IsEnabled, Mode=OneWay}"
+                                              Command="{CompiledBinding CommandToggle}" />
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+        </StackPanel>
+    </ScrollViewer>
+
+</reactiveUi:ReactiveUserControl>

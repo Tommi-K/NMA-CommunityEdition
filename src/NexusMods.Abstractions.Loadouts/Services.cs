@@ -32,6 +32,7 @@ public static class Services
             .AddDeletedFileModel()
             .AddCollectionGroupModel()
             .AddSortOrderModel()
+            .AddDisabledGameDlcModel()
             .AddGameBackedUpFileModel()
             .AddLoadoutQueriesSql();
     }

@@ -248,13 +248,21 @@ public class NxmIpcProtocolHandler : IIpcProtocolHandler
             return;
         }
         
-        var domain = GameDomain.From(modUrl.Game);
-        var game = GetManagedGameFor(domain);
-        if (game is null)
+        // Only links the user brought to the app are held to this: the app refuses to go and
+        // fetch a mod it would have nowhere to put. A file the app asked for itself -- each mod
+        // of a collection, say -- is already known to be wanted, and its domain need not be a
+        // managed game or even a game at all: collections list files hosted under `site`, which
+        // premium accounts download through the API without ever passing through here.
+        if (source is not ProtocolLinkSource.AppRequested)
         {
-            _logger.LogWarning("Mod download aborted: {Game} is not a managed game", modUrl.Game);
-            _eventBus.Send(new CliMessages.ModDownloadFailed(new FailureReason.GameNotManaged(modUrl.Game)));
-            return;
+            var domain = GameDomain.From(modUrl.Game);
+            var game = GetManagedGameFor(domain);
+            if (game is null)
+            {
+                _logger.LogWarning("Mod download aborted: {Game} is not a managed game", modUrl.Game);
+                _eventBus.Send(new CliMessages.ModDownloadFailed(new FailureReason.GameNotManaged(modUrl.Game)));
+                return;
+            }
         }
 
         var library = _serviceProvider.GetRequiredService<ILibraryService>();

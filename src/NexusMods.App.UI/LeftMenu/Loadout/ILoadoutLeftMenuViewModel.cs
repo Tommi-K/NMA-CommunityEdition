@@ -19,4 +19,9 @@ public interface ILoadoutLeftMenuViewModel : ILeftMenuViewModel
     public ILeftMenuItemViewModel LeftMenuItemHealthCheck { get; }
     
     public ILeftMenuItemViewModel? LeftMenuItemExternalChanges { get; }
+
+    /// <summary>
+    /// Null for games that ship no optional content of their own, which is most of them.
+    /// </summary>
+    public ILeftMenuItemViewModel? LeftMenuItemDlc { get; }
 }

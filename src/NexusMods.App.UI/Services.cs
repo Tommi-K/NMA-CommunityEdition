@@ -44,6 +44,7 @@ using NexusMods.App.UI.Pages.CollectionDownload;
 using NexusMods.App.UI.Pages.CollectionDownload.Dialogs.PremiumDownloads;
 using NexusMods.App.UI.Pages.DebugControls;
 using NexusMods.App.UI.Pages.Diagnostics;
+using NexusMods.App.UI.Pages.Dlc;
 using NexusMods.App.UI.Pages.Diff.ApplyDiff;
 using NexusMods.App.UI.Pages.Downloads;
 using NexusMods.App.UI.Pages.LibraryPage;
@@ -206,6 +207,8 @@ public static class Services
             
             .AddView<LoadOrderView, ILoadOrderViewModel>()
 
+            .AddView<DlcPageView, IDlcPageViewModel>()
+
             .AddView<UpgradeToPremiumView, IUpgradeToPremiumViewModel>()
             .AddViewModel<UpgradeToPremiumViewModel, IUpgradeToPremiumViewModel>()
 
@@ -286,6 +289,7 @@ public static class Services
             .AddSingleton<IPageFactory, DebugControlsPageFactory>()
             .AddSingleton<IPageFactory, ProtocolRegistrationTestPageFactory>()
             .AddSingleton<IPageFactory, LoadoutGroupFilesPageFactory>()
+            .AddSingleton<IPageFactory, DlcPageFactory>()
 
             // LeftMenu factories
             .AddSingleton<ILeftMenuFactory, HomeLeftMenuFactory>()

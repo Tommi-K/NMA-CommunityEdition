@@ -2554,6 +2554,42 @@ namespace NexusMods.App.UI.Resources {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to DLC.
+        /// </summary>
+        public static string DlcPage_Title {
+            get {
+                return ResourceManager.GetString("DlcPage_Title", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Switch the game's own add-ons on or off. Their files stay installed - a disabled add-on is simply left out of the load order, which takes effect the next time you apply. Mods that need an add-on you switch off will report a missing master in Health Check..
+        /// </summary>
+        public static string DlcPage_Description {
+            get {
+                return ResourceManager.GetString("DlcPage_Description", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to This game's add-ons aren't installed, so there is nothing to switch here..
+        /// </summary>
+        public static string DlcPage_Empty {
+            get {
+                return ResourceManager.GetString("DlcPage_Empty", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Turn the game's own add-ons on or off..
+        /// </summary>
+        public static string DlcPage_ToolTip {
+            get {
+                return ResourceManager.GetString("DlcPage_ToolTip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to External Changes.
         /// </summary>
         public static string LoadoutLeftMenuViewModel_External_Changes {
