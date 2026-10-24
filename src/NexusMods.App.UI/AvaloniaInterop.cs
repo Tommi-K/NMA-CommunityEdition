@@ -14,6 +14,12 @@ public interface IAvaloniaInterop
     
     Task<AbsolutePath[]> OpenFilePickerAsync(FilePickerOpenOptions filePickerOpenOptions);
     Task<AbsolutePath[]> OpenFolderPickerAsync(FolderPickerOpenOptions folderPickerOpenOptions);
+
+    /// <summary>
+    /// Asks where to save a file. Null when the user cancels.
+    /// </summary>
+    Task<AbsolutePath?> SaveFilePickerAsync(FilePickerSaveOptions filePickerSaveOptions);
+
     Task SetClipboardTextAsync(string text);
 }
 
@@ -71,6 +77,25 @@ internal class AvaloniaInterop : IAvaloniaInterop
         catch (Exception)
         {
             return [];
+        }
+    }
+
+    public async Task<AbsolutePath?> SaveFilePickerAsync(FilePickerSaveOptions filePickerSaveOptions)
+    {
+        var storageProvider = _storageProvider;
+        if (storageProvider is null) throw new InvalidOperationException("No storage provider registered!");
+
+        try
+        {
+            var file = await storageProvider.SaveFilePickerAsync(filePickerSaveOptions);
+            var path = file?.TryGetLocalPath();
+            if (path is null) return null;
+
+            return FileSystem.Shared.FromUnsanitizedFullPath(path);
+        }
+        catch (Exception)
+        {
+            return null;
         }
     }
 

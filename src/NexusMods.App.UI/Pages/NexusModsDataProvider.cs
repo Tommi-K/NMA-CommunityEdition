@@ -396,6 +396,7 @@ public class NexusModsDataProvider : ILibraryDataProvider, ILoadoutDataProvider
             LoadoutDataProviderHelper.AddEnabledStateToggle(_connection, parentItemModel, linkedItemsObservable);
             LoadoutDataProviderHelper.AddLoadoutItemIds(parentItemModel, linkedItemsObservable);
             LoadoutDataProviderHelper.AddViewModPageActionComponent(parentItemModel, isEnabled: true);
+            LoadoutDataProviderHelper.AddFindPatchesActionComponent(parentItemModel);
             LoadoutDataProviderHelper.AddViewModFilesActionComponent(parentItemModel, linkedItemsObservable);
             LoadoutDataProviderHelper.AddUninstallItemComponent(parentItemModel, linkedItemsObservable);
 
@@ -407,6 +408,7 @@ public class NexusModsDataProvider : ILibraryDataProvider, ILoadoutDataProvider
     {
         var childModel = LoadoutDataProviderHelper.ToChildItemModel(connection, loadoutItem);
         LoadoutDataProviderHelper.AddViewModPageActionComponent(childModel, isEnabled: true);
+        LoadoutDataProviderHelper.AddFindPatchesActionComponent(childModel);
         return childModel;
     }
 

@@ -178,6 +178,115 @@ internal partial class GraphQlClient : IGraphQlClient
         return operationResult.Transform(out GraphQlResult<string, NotFound> _, static result => result.CollectionRevision, static revision => revision.DownloadLink);
     }
 
+    public async ValueTask<GraphQlResult<ModDependentsPage[]>> QueryModsRequiring(IReadOnlyList<ModUid> mods, int offset, int count, CancellationToken cancellationToken)
+    {
+        var operationResult = await _client.QueryModsRequiring.ExecuteAsync(
+            ids: mods.Select(ToCompositeId).ToArray(),
+            modCount: mods.Count,
+            count: count,
+            offset: offset,
+            cancellationToken: cancellationToken
+        );
+
+        return operationResult.Transform(static result => result.LegacyMods, static page => page.Nodes
+            .Select(static node => new ModDependentsPage(
+                Uid: ToModUid(node.ModId, node.GameId),
+                TotalCount: node.ModRequirements.ModsRequiringThisMod.TotalCount,
+                Dependents: node.ModRequirements.ModsRequiringThisMod.Nodes
+                    .Select(static dependent => TryParseModUid(dependent.ModId, dependent.GameId, out var uid)
+                        ? new ModReference(uid, dependent.ModName)
+                        : null)
+                    .OfType<ModReference>()
+                    .ToArray()
+            ))
+            .ToArray()
+        );
+    }
+
+    public async ValueTask<GraphQlResult<ModFileSummary[]>> QueryModFileSummaries(ModUid mod, CancellationToken cancellationToken)
+    {
+        var operationResult = await _client.QueryModFileCategories.ExecuteAsync(
+            modId: mod.ModId.ToString(),
+            gameId: mod.GameId.ToString(),
+            cancellationToken: cancellationToken
+        );
+
+        return operationResult.Transform(static result => result.ModFiles, static files => files
+            .Select(static file => new ModFileSummary(
+                FileId: FileId.From((uint)file.FileId),
+                IsMain: file.Category == ModFileCategory.Main,
+                IsCurrent: file.Category is not (ModFileCategory.OldVersion or ModFileCategory.Archived or ModFileCategory.Removed),
+                IsPrimary: file.Primary != 0,
+                UploadedAt: DateTimeOffset.FromUnixTimeSeconds(file.Date)
+            ))
+            .ToArray()
+        );
+    }
+
+    public async ValueTask<GraphQlResult<ModCategoryAssignment[]>> QueryModCategories(IReadOnlyList<ModUid> mods, CancellationToken cancellationToken)
+    {
+        var operationResult = await _client.QueryModCategories.ExecuteAsync(
+            ids: mods.Select(ToCompositeId).ToArray(),
+            modCount: mods.Count,
+            cancellationToken: cancellationToken
+        );
+
+        return operationResult.Transform(static result => result.LegacyMods, static page => page.Nodes
+            .Select(static node => new ModCategoryAssignment(ToModUid(node.ModId, node.GameId), node.ModCategory?.Name))
+            .ToArray()
+        );
+    }
+
+    public async ValueTask<GraphQlResult<ModRequirementDetails[]>> QueryModRequirementDetails(IReadOnlyList<ModUid> mods, int requirementCount, CancellationToken cancellationToken)
+    {
+        var operationResult = await _client.QueryModRequirementDetails.ExecuteAsync(
+            ids: mods.Select(ToCompositeId).ToArray(),
+            modCount: mods.Count,
+            requirementCount: requirementCount,
+            cancellationToken: cancellationToken
+        );
+
+        return operationResult.Transform(static result => result.LegacyMods, static page => page.Nodes
+            .Select(static node => new ModRequirementDetails(
+                Uid: ToModUid(node.ModId, node.GameId),
+                Name: node.Name,
+                Status: node.Status,
+                CategoryName: node.ModCategory?.Name,
+                // An external requirement is a link to somewhere else, such as a script extender's
+                // own site, and carries no mod of its own.
+                NexusRequirements: node.ModRequirements.NexusRequirements.Nodes
+                    .Where(static requirement => !requirement.ExternalRequirement)
+                    .Select(static requirement => TryParseModUid(requirement.ModId, requirement.GameId, out var uid)
+                        ? new ModReference(uid, requirement.ModName)
+                        : null)
+                    .OfType<ModReference>()
+                    .ToArray()
+            ))
+            .ToArray()
+        );
+    }
+
+    private static CompositeIdInput ToCompositeId(ModUid uid) => new()
+    {
+        GameId = (int)uid.GameId.Value,
+        ModId = (int)uid.ModId.Value,
+    };
+
+    private static ModUid ToModUid(int modId, int gameId) => new(ModId.From((uint)modId), NexusModsGameId.From((uint)gameId));
+
+    /// <summary>
+    /// Requirement lists carry their ids as strings, and use zero for an entry that isn't a mod.
+    /// </summary>
+    private static bool TryParseModUid(string modId, string gameId, out ModUid uid)
+    {
+        uid = default(ModUid);
+        if (!uint.TryParse(modId, out var parsedModId) || parsedModId == 0) return false;
+        if (!uint.TryParse(gameId, out var parsedGameId) || parsedGameId == 0) return false;
+
+        uid = new ModUid(ModId.From(parsedModId), NexusModsGameId.From(parsedGameId));
+        return true;
+    }
+
     private T ExpectOne<T>(IReadOnlyList<T> list)
     {
         Debug.Assert(list.Count != 0, "expect result to contain at least one item");

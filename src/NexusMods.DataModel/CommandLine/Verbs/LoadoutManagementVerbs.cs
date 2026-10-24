@@ -310,6 +310,7 @@ public static class LoadoutManagementVerbs
         [Option("l", "loadout", "Loadout to change")] Loadout.ReadOnly loadout,
         [Option("i", "input", "Directory holding modlist.txt and/or plugins.txt")] AbsolutePath input,
         [Option("c", "collection", "Name of a collection to limit the matched mods to", true)] string? collection,
+        [Option("n", "dry-run", "Only report which mods the list names that aren't installed, and where to download them from; change nothing", true)] bool dryRun,
         [Injected] IModListService modListService,
         [Injected] CancellationToken token)
     {
@@ -325,7 +326,25 @@ public static class LoadoutManagementVerbs
         if (modList is null && pluginList is null)
             return await renderer.InputError("Found neither {0} nor {1} in {2}", ModOrganizerModList.FileName, ModOrganizerPluginList.FileName, input);
 
-        var result = await modListService.Import(loadout.LoadoutId, new ModListImport(modList, pluginList), collectionGroupId, token);
+        var import = new ModListImport(modList, pluginList) { ModListPath = modListPath.FileExists ? modListPath : null };
+
+        var missing = await modListService.FindMissing(loadout.LoadoutId, import, token);
+        if (missing.Length > 0)
+        {
+            await renderer.TextLine("{0} mods in the list are not installed, {1} of them with a Nexus Mods source to download from (downloading is done from the app):",
+                missing.Length, missing.Count(static mod => mod.Nexus is not null));
+            await renderer.Table(["Mod", "Nexus Mods"], missing.Select(mod => new object[] { mod.Name, mod.Nexus?.ToCommentLine()[ModListNexusSource.CommentPrefix.Length..] ?? "-" }));
+        }
+
+        if (dryRun)
+        {
+            await renderer.TextLine("Dry run: {0} mods in the list, {1} of them installed; nothing was changed",
+                ModOrganizerModList.Parse(modList ?? string.Empty).Count(static entry => entry.Kind == ModListEntryKind.Mod),
+                ModOrganizerModList.Parse(modList ?? string.Empty).Count(static entry => entry.Kind == ModListEntryKind.Mod) - missing.Length);
+            return 0;
+        }
+
+        var result = await modListService.Import(loadout.LoadoutId, import, collectionGroupId, token);
 
         if (result.ModListStatus == ModListImportStatus.Applied)
         {

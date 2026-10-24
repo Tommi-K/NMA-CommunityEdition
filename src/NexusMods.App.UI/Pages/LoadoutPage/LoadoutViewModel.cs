@@ -1,4 +1,5 @@
 using System.Reactive.Disposables;
+using Humanizer;
 using Avalonia.Platform.Storage;
 using DynamicData;
 using DynamicData.Kernel;
@@ -23,6 +24,7 @@ using NexusMods.App.UI.Pages.LibraryPage;
 using NexusMods.App.UI.Pages.LoadoutGroupFilesPage;
 using NexusMods.App.UI.Pages.LoadoutPage.Dialogs.CollectionPublished;
 using NexusMods.App.UI.Pages.LoadoutPage.Dialogs.ShareCollection;
+using NexusMods.App.UI.Pages.PatchFinder;
 using NexusMods.App.UI.Pages.Sorting;
 using NexusMods.App.UI.Resources;
 using NexusMods.App.UI.Settings;
@@ -97,6 +99,7 @@ public class LoadoutViewModel : APageViewModel<ILoadoutViewModel>, ILoadoutViewM
 
     public ReactiveCommand<Unit> CommandImportModList { get; }
     public ReactiveCommand<Unit> CommandExportModList { get; }
+    public ReactiveCommand<NavigationInformation> CommandOpenPatchFinderPage { get; }
 
     public bool EnableCollectionSharing { get; }
 
@@ -479,23 +482,56 @@ public class LoadoutViewModel : APageViewModel<ILoadoutViewModel>, ILoadoutViewM
 
                 string? modList = null;
                 string? pluginList = null;
+                AbsolutePath? modListPath = null;
 
                 foreach (var path in paths)
                 {
                     var contents = await path.ReadAllTextAsync(cancellationToken);
-                    if (IsModList(path, contents)) modList ??= contents;
-                    else pluginList ??= contents;
+                    if (IsModList(path, contents))
+                    {
+                        if (modList is not null) continue;
+                        modList = contents;
+                        modListPath = path;
+                    }
+                    else
+                    {
+                        pluginList ??= contents;
+                    }
                 }
 
+                // The path is what lets a list from a Mod Organizer profile be matched, and its
+                // missing mods downloaded, by the Nexus Mods ids in the instance's meta.ini files.
+                var import = new ModListImport(modList, pluginList) { ModListPath = modListPath };
+                var missing = await modListService.FindMissing(loadoutId, import, cancellationToken);
+                var downloadable = missing.Where(static mod => mod.Nexus is not null).ToArray();
+
                 var confirmation = await windowManager.ShowDialog(
-                    LoadoutDialogs.ImportModList(modListScopeDescription, modList is not null, pluginList is not null),
+                    LoadoutDialogs.ImportModList(modListScopeDescription, modList is not null, pluginList is not null, missing.Length, downloadable.Length),
                     DialogWindowType.Modal
                 );
 
-                if (confirmation.ButtonId != ButtonDefinitionId.Accept) return;
+                ModListDownloadResult? downloads = null;
 
-                var result = await modListService.Import(loadoutId, new ModListImport(modList, pluginList), collectionGroupId, cancellationToken);
-                await windowManager.ShowDialog(LoadoutDialogs.ModListImported(result), DialogWindowType.Modal);
+                if (confirmation.ButtonId == LoadoutDialogs.DownloadAndImportButtonId)
+                {
+                    _notificationService.ShowToast($"Downloading {"mod".ToQuantity(downloadable.Length)} from the imported list…");
+
+                    // Into the collection the import is for, when the user can add to it; otherwise
+                    // wherever the loadout puts new mods.
+                    var parent = collectionGroupId.HasValue && !CollectionGroup.Load(_connection.Db, collectionGroupId.Value).IsReadOnly
+                        ? collectionGroupId.Convert(static id => (LoadoutItemGroupId)id.Value)
+                        : Optional<LoadoutItemGroupId>.None;
+
+                    downloads = await serviceProvider.GetRequiredService<ModListDownloader>()
+                        .DownloadAndInstall(loadoutId, downloadable, parent, cancellationToken);
+                }
+                else if (confirmation.ButtonId != ButtonDefinitionId.Accept)
+                {
+                    return;
+                }
+
+                var result = await modListService.Import(loadoutId, import, collectionGroupId, cancellationToken);
+                await windowManager.ShowDialog(LoadoutDialogs.ModListImported(result, downloads), DialogWindowType.Modal);
             }, maxSequential: 1, configureAwait: false
         );
 
@@ -542,6 +578,24 @@ public class LoadoutViewModel : APageViewModel<ILoadoutViewModel>, ILoadoutViewM
                     ToastNotificationVariant.Success
                 );
             }, maxSequential: 1, configureAwait: false
+        );
+
+        // Patches are about the loadout as a whole, so this scans every mod in it even from a
+        // collection's page.
+        CommandOpenPatchFinderPage = new ReactiveCommand<NavigationInformation>(info =>
+            {
+                var pageData = new PageData
+                {
+                    FactoryId = PatchFinderPageFactory.StaticId,
+                    Context = new PatchFinderPageContext
+                    {
+                        LoadoutId = loadoutId,
+                    },
+                };
+                var workspaceController = GetWorkspaceController();
+                var behavior = workspaceController.GetOpenPageBehavior(pageData, info);
+                workspaceController.OpenPage(workspaceController.ActiveWorkspaceId, pageData, behavior);
+            }
         );
 
         CommandDeselectItems = new ReactiveCommand<Unit>(_ => { Adapter.ClearSelection(); });
@@ -653,7 +707,14 @@ public class LoadoutViewModel : APageViewModel<ILoadoutViewModel>, ILoadoutViewM
                                     _connection, GetWorkspaceController());
                                 return Task.CompletedTask;
                             },
-                            uninstallItemMessage => HandleUninstallItem(uninstallItemMessage.Ids, windowManager, _connection)
+                            uninstallItemMessage => HandleUninstallItem(uninstallItemMessage.Ids, windowManager, _connection),
+                            findPatchesMessage =>
+                            {
+                                HandleFindPatches(findPatchesMessage.Ids,
+                                    findPatchesMessage.NavigationInformation,
+                                    loadoutId, GetWorkspaceController(), _connection);
+                                return Task.CompletedTask;
+                            }
                         );
                     }, awaitOperation: AwaitOperation.Parallel, configureAwait: false
                 ).AddTo(disposables);
@@ -764,6 +825,29 @@ public class LoadoutViewModel : APageViewModel<ILoadoutViewModel>, ILoadoutViewM
 
         var result = await windowManager.ShowDialog(dialog, DialogWindowType.Modal);
         return result;
+    }
+
+    /// <summary>
+    /// Opens the patches and translations page for the mod page the first of <paramref name="ids"/> came from.
+    /// </summary>
+    internal static void HandleFindPatches(LoadoutItemId[] ids, NavigationInformation navInfo, LoadoutId loadoutId, IWorkspaceController workspaceController, IConnection connection)
+    {
+        if (ids.Length == 0) return;
+
+        if (!LibraryLinkedLoadoutItem.TryGet(connection.Db, ids[0].Value, out var linkedItem)) return;
+        if (!NexusModsLibraryItem.TryGet(connection.Db, linkedItem.Value.LibraryItemId.Value, out var nexusModsLibraryItem)) return;
+
+        var pageData = new PageData
+        {
+            FactoryId = PatchFinderPageFactory.StaticId,
+            Context = new PatchFinderPageContext
+            {
+                LoadoutId = loadoutId,
+                ModPageUid = nexusModsLibraryItem.Value.ModPageMetadata.Uid.AsUlong,
+            },
+        };
+
+        workspaceController.OpenPage(workspaceController.ActiveWorkspaceId, pageData, workspaceController.GetOpenPageBehavior(pageData, navInfo));
     }
 
     internal static void HandleOpenModPageFor(LoadoutItemId[] ids, IConnection connection, IOSInterop os, CancellationToken cancellationToken)

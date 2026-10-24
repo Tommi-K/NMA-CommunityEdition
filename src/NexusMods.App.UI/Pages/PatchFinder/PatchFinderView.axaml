@@ -1,0 +1,167 @@
+<reactiveUi:ReactiveUserControl
+    x:TypeArguments="patchFinder:IPatchFinderViewModel"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:reactiveUi="http://reactiveui.net"
+    xmlns:patchFinder="clr-namespace:NexusMods.App.UI.Pages.PatchFinder"
+    xmlns:controls="clr-namespace:NexusMods.App.UI.Controls"
+    xmlns:icons="clr-namespace:NexusMods.UI.Sdk.Icons;assembly=NexusMods.UI.Sdk"
+    mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+    x:Class="NexusMods.App.UI.Pages.PatchFinder.PatchFinderView">
+
+    <UserControl.Resources>
+        <DataTemplate x:Key="MatchTemplate" DataType="{x:Type patchFinder:IPatchFinderItemViewModel}">
+            <Border Padding="12"
+                    Margin="0,0,0,8"
+                    CornerRadius="{StaticResource Rounded-md}"
+                    Background="{StaticResource SurfaceMidBrush}">
+                <Grid ColumnDefinitions="*, Auto">
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="{CompiledBinding Name}"
+                                       Theme="{StaticResource BodyMDSemiTheme}"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{CompiledBinding LanguageText}"
+                                       IsVisible="{CompiledBinding LanguageText, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                       Theme="{StaticResource BodySMNormalTheme}"
+                                       Foreground="{StaticResource PrimaryStrongBrush}"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                        <TextBlock Text="{CompiledBinding ForText}"
+                                   Theme="{StaticResource BodySMNormalTheme}"
+                                   Foreground="{StaticResource NeutralSubduedBrush}"
+                                   TextWrapping="Wrap" />
+                        <TextBlock Text="{CompiledBinding MissingText}"
+                                   IsVisible="{CompiledBinding MissingText, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                   Theme="{StaticResource BodySMNormalTheme}"
+                                   Foreground="{StaticResource WarningStrongBrush}"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+                    <controls:StandardButton Grid.Column="1"
+                                             Margin="12,0,0,0"
+                                             VerticalAlignment="Center"
+                                             Text="View"
+                                             Type="Tertiary"
+                                             Size="Small"
+                                             Fill="Weak"
+                                             ShowIcon="Left"
+                                             LeftIcon="{x:Static icons:IconValues.OpenInNew}"
+                                             ToolTip.Tip="Open its page on Nexus Mods"
+                                             Command="{CompiledBinding CommandOpen}" />
+                </Grid>
+            </Border>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <ScrollViewer>
+        <StackPanel Margin="24" Spacing="{StaticResource Spacing-4}">
+
+            <StackPanel Spacing="{StaticResource Spacing-2}">
+                <StackPanel Spacing="{StaticResource Spacing-1}">
+                    <TextBlock x:Name="HeaderText" Theme="{StaticResource HeadingSMSemiTheme}" />
+                    <TextBlock x:Name="SubHeaderText"
+                               Theme="{StaticResource BodySMNormalTheme}"
+                               Foreground="{StaticResource NeutralSubduedBrush}"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+
+                <Grid ColumnDefinitions="Auto, Auto, *">
+                    <controls:StandardButton Grid.Column="0"
+                                             x:Name="RescanButton"
+                                             VerticalAlignment="Top"
+                                             Text="Scan again"
+                                             Type="Tertiary"
+                                             Size="Small"
+                                             Fill="Weak"
+                                             ShowIcon="Left"
+                                             LeftIcon="{x:Static icons:IconValues.Refresh}" />
+                    <controls:StandardButton Grid.Column="1"
+                                             x:Name="ExportButton"
+                                             Margin="8,0,0,0"
+                                             VerticalAlignment="Top"
+                                             Text="Export list"
+                                             Type="Tertiary"
+                                             Size="Small"
+                                             Fill="Weak"
+                                             ShowIcon="Left"
+                                             LeftIcon="{x:Static icons:IconValues.FileExportOutline}"
+                                             ToolTip.Tip="Save what is shown here as a mod list. Importing it on a loadout downloads and installs these; it also reads as a list of links." />
+                    <StackPanel Grid.Column="2" Margin="12,0,0,0" VerticalAlignment="Center" Spacing="6">
+                        <TextBlock x:Name="StatusText"
+                                   Theme="{StaticResource BodySMNormalTheme}"
+                                   TextWrapping="Wrap" />
+                        <ProgressBar x:Name="ScanProgress" Minimum="0" Maximum="100" />
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
+
+            <StackPanel Spacing="{StaticResource Spacing-2}">
+                <Grid ColumnDefinitions="*, Auto">
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <icons:UnifiedIcon Value="{x:Static icons:IconValues.PuzzleOutline}" Size="20" />
+                        <TextBlock Text="Patches" Theme="{StaticResource HeadingXSSemiTheme}" />
+                    </StackPanel>
+                    <CheckBox Grid.Column="1"
+                              x:Name="ShowAllPatchesCheckBox"
+                              VerticalAlignment="Center"
+                              Content="Include patches that need mods you don't have" />
+                </Grid>
+
+                <TextBlock x:Name="PatchesEmptyText"
+                           Theme="{StaticResource BodyMDNormalTheme}"
+                           Foreground="{StaticResource NeutralSubduedBrush}"
+                           TextWrapping="Wrap" />
+
+                <ItemsControl x:Name="PatchItems" ItemTemplate="{StaticResource MatchTemplate}">
+                    <!-- A large loadout finds thousands; only the rows on screen are built. -->
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <VirtualizingStackPanel />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                </ItemsControl>
+            </StackPanel>
+
+            <StackPanel Spacing="{StaticResource Spacing-2}">
+                <Grid ColumnDefinitions="*, Auto">
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <icons:UnifiedIcon Value="{x:Static icons:IconValues.Translate}" Size="20" />
+                        <TextBlock Text="Translations" Theme="{StaticResource HeadingXSSemiTheme}" />
+                    </StackPanel>
+                    <!-- The template has to be spelled out: without one, ReactiveUI binding the
+                         items fills it in with a view lookup, which has no view for a plain
+                         record and reports that as an error. -->
+                    <ComboBox Grid.Column="1"
+                              x:Name="LanguageSelector"
+                              Classes="Secondary Compact"
+                              VerticalAlignment="Center"
+                              MinWidth="180">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate DataType="{x:Type patchFinder:PatchFinderLanguageOption}">
+                                <TextBlock Text="{CompiledBinding DisplayName}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                </Grid>
+
+                <TextBlock x:Name="TranslationsEmptyText"
+                           Theme="{StaticResource BodyMDNormalTheme}"
+                           Foreground="{StaticResource NeutralSubduedBrush}"
+                           TextWrapping="Wrap" />
+
+                <ItemsControl x:Name="TranslationItems" ItemTemplate="{StaticResource MatchTemplate}">
+                    <!-- A large loadout finds thousands; only the rows on screen are built. -->
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <VirtualizingStackPanel />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                </ItemsControl>
+            </StackPanel>
+
+        </StackPanel>
+    </ScrollViewer>
+
+</reactiveUi:ReactiveUserControl>

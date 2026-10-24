@@ -126,6 +126,29 @@ public partial class NexusModsLibrary
         return txResults.Remap(newFile);
     }
 
+    /// <summary>
+    /// Finds the file to download from a mod page when no particular one was asked for: the
+    /// page's primary main file, else its newest main file, else its newest file that is still
+    /// current. Null when the page has nothing current to download.
+    /// </summary>
+    public async Task<NexusModsFileMetadata.ReadOnly?> GetOrAddMainFile(
+        NexusModsModPageMetadata.ReadOnly modPage,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _graphQlClient.QueryModFileSummaries(modPage.Uid, cancellationToken);
+        if (!result.TryGetData(out var files)) return null;
+
+        var chosen = files
+            .Where(static file => file.IsCurrent)
+            .OrderByDescending(static file => file.IsMain)
+            .ThenByDescending(static file => file.IsPrimary)
+            .ThenByDescending(static file => file.UploadedAt)
+            .FirstOrDefault();
+
+        if (chosen is null) return null;
+        return await GetOrAddFile(chosen.FileId, modPage, cancellationToken);
+    }
+
     public async Task<Uri> GetDownloadUri(
         NexusModsFileMetadata.ReadOnly file,
         Optional<(NXMKey, DateTime)> nxmData,

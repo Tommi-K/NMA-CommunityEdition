@@ -346,6 +346,15 @@ public static class IconValues
 
     // https://pictogrammers.com/library/mdi/icon/file-export-outline/
     public static readonly IconValue FileExportOutline = new ProjektankerIcon("mdi-file-export-outline");
+
+    // https://pictogrammers.com/library/mdi/icon/puzzle-check-outline/
+    public static readonly IconValue PuzzleCheckOutline = new ProjektankerIcon("mdi-puzzle-check-outline");
+
+    // https://pictogrammers.com/library/mdi/icon/puzzle-outline/
+    public static readonly IconValue PuzzleOutline = new ProjektankerIcon("mdi-puzzle-outline");
+
+    // https://pictogrammers.com/library/mdi/icon/translate/
+    public static readonly IconValue Translate = new ProjektankerIcon("mdi-translate");
     
     // https://pictogrammers.com/library/mdi/icon/pencil/
     public static readonly IconValue Pencil = new ProjektankerIcon("mdi-pencil");

@@ -101,4 +101,39 @@ public partial interface IGraphQlClient
         CollectionSlug collectionSlug,
         RevisionNumber revisionNumber,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Queries one page of the "mods requiring this file" list of each of <paramref name="mods"/>.
+    /// </summary>
+    /// <remarks>
+    /// The same page is read for every mod, and a mod the site doesn't return is left out
+    /// of the result rather than reported as an error.
+    /// </remarks>
+    ValueTask<GraphQlResult<ModDependentsPage[]>> QueryModsRequiring(
+        IReadOnlyList<ModUid> mods,
+        int offset,
+        int count,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Queries which files a mod page has, and how each is filed.
+    /// </summary>
+    ValueTask<GraphQlResult<ModFileSummary[]>> QueryModFileSummaries(
+        ModUid mod,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Queries the category of each of <paramref name="mods"/>.
+    /// </summary>
+    ValueTask<GraphQlResult<ModCategoryAssignment[]>> QueryModCategories(
+        IReadOnlyList<ModUid> mods,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Queries the name, status, category and Nexus Mods requirements of each of <paramref name="mods"/>.
+    /// </summary>
+    ValueTask<GraphQlResult<ModRequirementDetails[]>> QueryModRequirementDetails(
+        IReadOnlyList<ModUid> mods,
+        int requirementCount,
+        CancellationToken cancellationToken = default);
 }

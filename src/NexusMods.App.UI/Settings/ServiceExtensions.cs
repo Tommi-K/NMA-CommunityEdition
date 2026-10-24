@@ -15,6 +15,7 @@ public static class ServiceExtensions
             .AddSettings<BehaviorSettings>()
             .AddSettings<BrowserSettings>()
             .AddSettings<UpdaterSettings>()
-            .AddSettings<WelcomeSettings>();
+            .AddSettings<WelcomeSettings>()
+            .AddSettings<PatchFinderSettings>();
     }
 }

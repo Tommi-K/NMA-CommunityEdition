@@ -17,12 +17,13 @@ public readonly record struct OpenCollectionMessage(LoadoutItemId[] Ids, Navigat
 public readonly record struct ViewModPageMessage(LoadoutItemId[] Ids);
 public readonly record struct ViewModFilesMessage(LoadoutItemId[] Ids, NavigationInformation NavigationInformation);
 public readonly record struct UninstallItemMessage(LoadoutItemId[] Ids);
+public readonly record struct FindPatchesMessage(LoadoutItemId[] Ids, NavigationInformation NavigationInformation);
 
 public class LoadoutTreeDataGridAdapter :
     TreeDataGridAdapter<CompositeItemModel<EntityId>, EntityId>,
-    ITreeDataGirdMessageAdapter<OneOf<ToggleEnableStateMessage, OpenCollectionMessage, ViewModPageMessage, ViewModFilesMessage, UninstallItemMessage>>
+    ITreeDataGirdMessageAdapter<OneOf<ToggleEnableStateMessage, OpenCollectionMessage, ViewModPageMessage, ViewModFilesMessage, UninstallItemMessage, FindPatchesMessage>>
 {
-    public Subject<OneOf<ToggleEnableStateMessage, OpenCollectionMessage, ViewModPageMessage, ViewModFilesMessage, UninstallItemMessage>> MessageSubject { get; } = new();
+    public Subject<OneOf<ToggleEnableStateMessage, OpenCollectionMessage, ViewModPageMessage, ViewModFilesMessage, UninstallItemMessage, FindPatchesMessage>> MessageSubject { get; } = new();
 
     private readonly ILoadoutDataProvider[] _loadoutDataProviders;
     private readonly LoadoutFilter _loadoutFilter;
@@ -120,6 +121,18 @@ public class LoadoutTreeDataGridAdapter :
             })
         );
         
+        model.SubscribeToComponentAndTrack<LoadoutComponents.FindPatchesAction, LoadoutTreeDataGridAdapter>(
+            key: LoadoutColumns.EnabledState.FindPatchesComponentKey,
+            state: this,
+            factory: static (self, itemModel, component) => component.Command.Subscribe((self, itemModel, component), static (navInfo, tuple) =>
+            {
+                var (self, model, _) = tuple;
+                var ids = GetLoadoutItemIds(model).ToArray();
+
+                self.MessageSubject.OnNext(new FindPatchesMessage(ids, navInfo));
+            })
+        );
+
         model.SubscribeToComponentAndTrack<SharedComponents.UninstallItemAction, LoadoutTreeDataGridAdapter>(
             key: LoadoutColumns.EnabledState.UninstallItemComponentKey,
             state: this,

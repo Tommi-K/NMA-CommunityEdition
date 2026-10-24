@@ -45,6 +45,7 @@ using NexusMods.App.UI.Pages.CollectionDownload.Dialogs.PremiumDownloads;
 using NexusMods.App.UI.Pages.DebugControls;
 using NexusMods.App.UI.Pages.Diagnostics;
 using NexusMods.App.UI.Pages.Dlc;
+using NexusMods.App.UI.Pages.PatchFinder;
 using NexusMods.App.UI.Pages.Diff.ApplyDiff;
 using NexusMods.App.UI.Pages.Downloads;
 using NexusMods.App.UI.Pages.LibraryPage;
@@ -208,6 +209,7 @@ public static class Services
             .AddView<LoadOrderView, ILoadOrderViewModel>()
 
             .AddView<DlcPageView, IDlcPageViewModel>()
+            .AddView<PatchFinderView, IPatchFinderViewModel>()
 
             .AddView<UpgradeToPremiumView, IUpgradeToPremiumViewModel>()
             .AddViewModel<UpgradeToPremiumViewModel, IUpgradeToPremiumViewModel>()
@@ -278,6 +280,7 @@ public static class Services
             .AddSingleton<IInAppBrowser, InAppBrowser>()
             .AddSingleton<BrowserDownloadTracker>()
             .AddSingleton<ModUpdateDownloader>()
+            .AddSingleton<ModListDownloader>()
             .AddSingleton<AdBlocker>()
             .AddSingleton<IPageFactory, MyLoadoutsPageFactory>()
             .AddSingleton<IPageFactory, LibraryPageFactory>()
@@ -290,6 +293,7 @@ public static class Services
             .AddSingleton<IPageFactory, ProtocolRegistrationTestPageFactory>()
             .AddSingleton<IPageFactory, LoadoutGroupFilesPageFactory>()
             .AddSingleton<IPageFactory, DlcPageFactory>()
+            .AddSingleton<IPageFactory, PatchFinderPageFactory>()
 
             // LeftMenu factories
             .AddSingleton<ILeftMenuFactory, HomeLeftMenuFactory>()

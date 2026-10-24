@@ -251,7 +251,14 @@ public class CollectionLoadoutViewModel : APageViewModel<ICollectionLoadoutViewM
                             connection, GetWorkspaceController());
                         return Task.CompletedTask;
                     },
-                    uninstallItemMessage => LoadoutViewModel.HandleUninstallItem(uninstallItemMessage.Ids, windowManager, connection)
+                    uninstallItemMessage => LoadoutViewModel.HandleUninstallItem(uninstallItemMessage.Ids, windowManager, connection),
+                    findPatchesMessage =>
+                    {
+                        LoadoutViewModel.HandleFindPatches(findPatchesMessage.Ids,
+                            findPatchesMessage.NavigationInformation,
+                            pageContext.LoadoutId, GetWorkspaceController(), connection);
+                        return Task.CompletedTask;
+                    }
                 );
             }, awaitOperation: AwaitOperation.Parallel, configureAwait: false).AddTo(disposables);
         });

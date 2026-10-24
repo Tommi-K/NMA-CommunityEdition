@@ -42,21 +42,33 @@ public static class ModOrganizerModList
     {
         var entries = new List<ModListEntry>();
 
+        // A Nexus Mods source line belongs to the entry right after it.
+        ModListNexusSource? pendingSource = null;
+
         foreach (var rawLine in contents.Split('\n'))
         {
             var line = rawLine.Trim();
-            if (line.Length == 0 || line[0] == '#') continue;
+            if (line.Length == 0) continue;
+
+            if (line[0] == '#')
+            {
+                if (ModListNexusSource.TryParseCommentLine(line, out var source)) pendingSource = source;
+                continue;
+            }
 
             var name = line[1..].Trim();
             if (name.Length == 0) continue;
 
+            var nexus = pendingSource;
+            pendingSource = null;
+
             switch (line[0])
             {
                 case '+':
-                    entries.Add(IsSeparatorName(name) ? ModListEntry.Separator(name) : ModListEntry.Mod(name, isEnabled: true));
+                    entries.Add(IsSeparatorName(name) ? ModListEntry.Separator(name) : ModListEntry.Mod(name, isEnabled: true) with { Nexus = nexus });
                     break;
                 case '-':
-                    entries.Add(IsSeparatorName(name) ? ModListEntry.Separator(name) : ModListEntry.Mod(name, isEnabled: false));
+                    entries.Add(IsSeparatorName(name) ? ModListEntry.Separator(name) : ModListEntry.Mod(name, isEnabled: false) with { Nexus = nexus });
                     break;
                 case '*':
                     entries.Add(new ModListEntry(name, IsEnabled: true, ModListEntryKind.Unmanaged));
@@ -70,13 +82,29 @@ public static class ModOrganizerModList
     /// <summary>
     /// Writes the entries as a <c>modlist.txt</c>, expecting the highest priority entry first.
     /// </summary>
-    public static string Write(IEnumerable<ModListEntry> entries)
+    /// <param name="entries">The entries, highest priority first.</param>
+    /// <param name="comment">Text for the top of the file, written as comment lines.</param>
+    public static string Write(IEnumerable<ModListEntry> entries, string? comment = null)
     {
         var sb = new StringBuilder();
         sb.Append(Header).Append('\n');
 
+        if (comment is not null)
+        {
+            foreach (var commentLine in comment.Split('\n'))
+                sb.Append("# ").Append(commentLine.TrimEnd()).Append('\n');
+        }
+
         foreach (var entry in entries)
         {
+            if (entry.Comment is not null)
+            {
+                foreach (var commentLine in entry.Comment.Split('\n'))
+                    sb.Append("# ").Append(commentLine.TrimEnd()).Append('\n');
+            }
+
+            if (entry.Nexus is { } nexus) sb.Append(nexus.ToCommentLine()).Append('\n');
+
             var prefix = entry.Kind switch
             {
                 ModListEntryKind.Unmanaged => '*',

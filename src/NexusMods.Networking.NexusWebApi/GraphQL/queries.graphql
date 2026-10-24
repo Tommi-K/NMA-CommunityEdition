@@ -95,3 +95,86 @@ query QueryCollectionRevisionNumbers($collectionSlug: String!, $gameDomainName: 
         }
     }
 }
+
+query QueryModsRequiring($ids: [CompositeIdInput!]!, $modCount: Int!, $count: Int!, $offset: Int!)
+{
+    legacyMods(ids: $ids, count: $modCount)
+    {
+        nodes
+        {
+            modId
+            gameId
+            modRequirements
+            {
+                modsRequiringThisMod(count: $count, offset: $offset)
+                {
+                    totalCount
+                    nodes
+                    {
+                        modId
+                        gameId
+                        modName
+                    }
+                }
+            }
+        }
+    }
+}
+
+query QueryModRequirementDetails($ids: [CompositeIdInput!]!, $modCount: Int!, $requirementCount: Int!)
+{
+    legacyMods(ids: $ids, count: $modCount)
+    {
+        nodes
+        {
+            modId
+            gameId
+            name
+            status
+            modCategory
+            {
+                name
+            }
+            modRequirements
+            {
+                nexusRequirements(count: $requirementCount)
+                {
+                    nodes
+                    {
+                        modId
+                        gameId
+                        modName
+                        externalRequirement
+                    }
+                }
+            }
+        }
+    }
+}
+
+query QueryModCategories($ids: [CompositeIdInput!]!, $modCount: Int!)
+{
+    legacyMods(ids: $ids, count: $modCount)
+    {
+        nodes
+        {
+            modId
+            gameId
+            modCategory
+            {
+                name
+            }
+        }
+    }
+}
+
+query QueryModFileCategories($modId: ID!, $gameId: ID!)
+{
+    modFiles(modId: $modId, gameId: $gameId)
+    {
+        fileId
+        category
+        primary
+        date
+    }
+}

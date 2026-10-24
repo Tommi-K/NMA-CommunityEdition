@@ -1,6 +1,7 @@
 using DynamicData.Kernel;
 using JetBrains.Annotations;
 using NexusMods.Abstractions.Loadouts;
+using NexusMods.Paths;
 using NexusMods.Sdk.Loadouts;
 
 namespace NexusMods.Abstractions.Games;
@@ -10,10 +11,12 @@ namespace NexusMods.Abstractions.Games;
 /// Mod Organizer 2's <c>modlist.txt</c>/<c>plugins.txt</c> pair.
 /// </summary>
 /// <remarks>
-/// The format carries names only - no download links or hashes - so an import can only act on
-/// mods that are already installed in the loadout. Names it cannot place are reported back
-/// rather than installed. Mod Organizer's separator entries are read and skipped, and never
-/// written, because the app has nothing to keep them in.
+/// Mod Organizer's format carries names only. The app adds where each mod comes from on Nexus
+/// Mods as comment lines Mod Organizer skips (see <see cref="ModListNexusSource"/>), and reads the
+/// same from Mod Organizer's own <c>meta.ini</c> files when the list sits in its folder. That is
+/// what lets <see cref="FindMissing"/> say what to download for the mods a loadout doesn't have;
+/// the import itself only acts on installed mods. Mod Organizer's separator entries are read and
+/// skipped, and never written, because the app has nothing to keep them in.
 /// </remarks>
 [PublicAPI]
 public interface IModListService
@@ -35,7 +38,22 @@ public interface IModListService
     /// <param name="import">The file contents to apply. Either half may be left out.</param>
     /// <param name="collectionGroupId">Restricts the mods that may be matched to one collection.</param>
     ValueTask<ModListImportResult> Import(LoadoutId loadoutId, ModListImport import, Optional<CollectionGroupId> collectionGroupId = default, CancellationToken token = default);
+
+    /// <summary>
+    /// The mods in the list that the loadout doesn't have installed, highest priority first, each
+    /// with where to download it from when that is known.
+    /// </summary>
+    ValueTask<ModListMissingMod[]> FindMissing(LoadoutId loadoutId, ModListImport import, CancellationToken token = default);
 }
+
+/// <summary>
+/// A mod a list names that the loadout doesn't have.
+/// </summary>
+/// <param name="Name">The name the list gives it.</param>
+/// <param name="IsEnabled">Whether the list has it switched on.</param>
+/// <param name="Nexus">Where to download it from, or null when the list doesn't say.</param>
+[PublicAPI]
+public record ModListMissingMod(string Name, bool IsEnabled, ModListNexusSource? Nexus);
 
 /// <summary>
 /// The file contents produced by <see cref="IModListService.Export"/>.
@@ -53,7 +71,15 @@ public record ModListExport(string ModList, string? PluginList);
 /// <param name="ModList">Contents of a <c>modlist.txt</c>, or <c>null</c> to leave the mod order alone.</param>
 /// <param name="PluginList">Contents of a <c>plugins.txt</c>, or <c>null</c> to leave the load order alone.</param>
 [PublicAPI]
-public record ModListImport(string? ModList, string? PluginList);
+public record ModListImport(string? ModList, string? PluginList)
+{
+    /// <summary>
+    /// Where <see cref="ModList"/> was read from, when it came from a file. A list inside a Mod
+    /// Organizer profile has the instance's <c>meta.ini</c> files next to it, which say where each
+    /// mod came from on Nexus Mods.
+    /// </summary>
+    public AbsolutePath? ModListPath { get; init; }
+}
 
 /// <summary>
 /// What became of one half of an import.

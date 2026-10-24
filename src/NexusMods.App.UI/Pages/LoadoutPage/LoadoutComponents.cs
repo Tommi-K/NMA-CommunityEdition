@@ -75,6 +75,29 @@ public static class LoadoutComponents
         public int CompareTo(MixLockedAndParentDisabled? other) => 0;
     }
 
+    /// <summary>
+    /// Opens the patches and translations page for the one mod a row is. Only rows for mods
+    /// from Nexus Mods have it, since only those have a "mods requiring this file" list.
+    /// </summary>
+    public sealed class FindPatchesAction : ReactiveR3Object, IItemModelComponent<FindPatchesAction>, IComparable<FindPatchesAction>
+    {
+        public ReactiveCommand<NavigationInformation, NavigationInformation> Command { get; } = new(info => info);
+
+        public int CompareTo(FindPatchesAction? other) => 0;
+
+        private bool _isDisposed;
+        protected override void Dispose(bool disposing)
+        {
+            if (!_isDisposed)
+            {
+                if (disposing) Command.Dispose();
+                _isDisposed = true;
+            }
+
+            base.Dispose(disposing);
+        }
+    }
+
     public sealed class EnabledStateToggle : ReactiveR3Object, IItemModelComponent<EnabledStateToggle>, IComparable<EnabledStateToggle>
     {
         public ReactiveCommand<Unit> CommandToggle { get; } = new();
@@ -160,6 +183,7 @@ public static class LoadoutColumns
         public static readonly ComponentKey MixLockedAndParentDisabledComponentKey = ComponentKey.From(ColumnTemplateResourceKey + "_" + nameof(LoadoutComponents.MixLockedAndParentDisabled));
         public static readonly ComponentKey ViewModPageComponentKey = ComponentKey.From(ColumnTemplateResourceKey + "_" + nameof(SharedComponents.ViewModPageAction));
         public static readonly ComponentKey ViewModFilesComponentKey = ComponentKey.From(ColumnTemplateResourceKey + "_" + nameof(SharedComponents.ViewModFilesAction));
+        public static readonly ComponentKey FindPatchesComponentKey = ComponentKey.From(ColumnTemplateResourceKey + "_" + nameof(LoadoutComponents.FindPatchesAction));
         public static readonly ComponentKey UninstallItemComponentKey = ComponentKey.From(ColumnTemplateResourceKey + "_" + nameof(SharedComponents.UninstallItemAction));
         public static string GetColumnHeader() => "Actions";
         public static string GetColumnTemplateResourceKey() => ColumnTemplateResourceKey;

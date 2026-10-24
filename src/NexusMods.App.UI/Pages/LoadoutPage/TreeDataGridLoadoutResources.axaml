@@ -32,6 +32,26 @@
             </controls:ComponentControl.ComponentTemplate>
         </controls:ComponentControl>
         
+        <!-- Find patches action -->
+        <controls:ComponentControl x:TypeArguments="abstractions:EntityId" Content="{CompiledBinding}">
+            <controls:ComponentControl.ComponentTemplate>
+                <controls:ComponentTemplate x:TypeArguments="local:LoadoutComponents+FindPatchesAction"
+                                            ComponentKey="{x:Static local:LoadoutColumns+EnabledState.FindPatchesComponentKey}">
+                    <controls:ComponentTemplate.DataTemplate>
+                        <DataTemplate DataType="{x:Type local:LoadoutComponents+FindPatchesAction}">
+                            <navigation:NavigationMenuItem Header="Find patches &amp; translations for this mod"
+                                      Command="{CompiledBinding Command}"
+                                      ToolTip.Tip="Look through this mod's &quot;Mods requiring this file&quot; list on Nexus Mods for patches and translations">
+                                <MenuItem.Icon>
+                                    <icons:UnifiedIcon Value="{x:Static icons:IconValues.PuzzleCheckOutline}" />
+                                </MenuItem.Icon>
+                            </navigation:NavigationMenuItem>
+                        </DataTemplate>
+                    </controls:ComponentTemplate.DataTemplate>
+                </controls:ComponentTemplate>
+            </controls:ComponentControl.ComponentTemplate>
+        </controls:ComponentControl>
+
         <!-- View mod files action -->
         <controls:ComponentControl x:TypeArguments="abstractions:EntityId" Content="{CompiledBinding}">
             <controls:ComponentControl.ComponentTemplate>

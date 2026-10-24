@@ -91,13 +91,51 @@ public static class LoadoutDialogs
     }
 
     /// <summary>
-    /// Asks the user to confirm an import, spelling out what it is about to change.
+    /// The button on <see cref="ImportModList"/> that downloads the missing mods before importing.
     /// </summary>
-    public static IDialog ImportModList(string scopeDescription, bool hasModList, bool hasPluginList)
+    public static readonly ButtonDefinitionId DownloadAndImportButtonId = ButtonDefinitionId.From("download-and-import");
+
+    /// <summary>
+    /// Asks the user to confirm an import, spelling out what it is about to change, and offers to
+    /// download the mods the list names that aren't installed.
+    /// </summary>
+    /// <param name="scopeDescription">Which mods the import is about.</param>
+    /// <param name="hasModList">Whether a modlist.txt was picked.</param>
+    /// <param name="hasPluginList">Whether a plugins.txt was picked.</param>
+    /// <param name="missingCount">How many mods the list names that the loadout doesn't have.</param>
+    /// <param name="downloadableCount">How many of those the list says where to download from.</param>
+    public static IDialog ImportModList(string scopeDescription, bool hasModList, bool hasPluginList, int missingCount, int downloadableCount)
     {
         var changes = new List<string>();
         if (hasModList) changes.Add($"• Reorder {scopeDescription} and switch them on or off to match modlist.txt");
         if (hasPluginList) changes.Add("• Set the load order to match plugins.txt");
+
+        var missing = missingCount == 0
+            ? "Mods the files do not mention keep their current order and stay as they are."
+            : downloadableCount == 0
+                ? $"""
+                   Mods the files do not mention keep their current order and stay as they are.
+
+                   {"mod".ToQuantity(missingCount)} in the list {(missingCount == 1 ? "is" : "are")} not installed, and the list doesn't say where to download {(missingCount == 1 ? "it" : "them")} from. {(missingCount == 1 ? "It is" : "They are")} listed afterwards so you can add {(missingCount == 1 ? "it" : "them")}.
+                   """
+                : $"""
+                   Mods the files do not mention keep their current order and stay as they are.
+
+                   {"mod".ToQuantity(missingCount)} in the list {(missingCount == 1 ? "is" : "are")} not installed. {(downloadableCount == missingCount ? (missingCount == 1 ? "It" : "All of them") : $"{downloadableCount} of them")} can be downloaded from Nexus Mods and installed first, then put in place with the rest. Mods with installer options will ask for them.
+                   """;
+
+        IEnumerable<DialogButtonDefinition> buttons = downloadableCount == 0
+            ?
+            [
+                DialogStandardButtons.Cancel,
+                new DialogButtonDefinition("Import", ButtonDefinitionId.Accept, ButtonAction.Accept, ButtonStyling.Primary),
+            ]
+            :
+            [
+                DialogStandardButtons.Cancel,
+                new DialogButtonDefinition("Import without downloading", ButtonDefinitionId.Accept, ButtonAction.Accept),
+                new DialogButtonDefinition($"Download {downloadableCount} and import", DownloadAndImportButtonId, ButtonAction.Accept, ButtonStyling.Primary),
+            ];
 
         return DialogFactory.CreateStandardDialog(
             "Import mod list",
@@ -108,29 +146,25 @@ public static class LoadoutDialogs
 
                         {string.Join("\n", changes)}
 
-                        Mods the files do not mention keep their current order and stay as they are. Mods
-                        the files name but you have not installed are listed afterwards so you can add them.
+                        {missing}
                         """,
                 Icon = IconValues.PictogramPlaylistAdd,
             },
-            [
-                DialogStandardButtons.Cancel,
-                new DialogButtonDefinition(
-                    "Import",
-                    ButtonDefinitionId.Accept,
-                    ButtonAction.Accept,
-                    ButtonStyling.Primary
-                ),
-            ]
+            buttons.ToArray()
         );
     }
 
     /// <summary>
     /// Reports what an import changed and which names it could not place.
     /// </summary>
-    public static IDialog ModListImported(ModListImportResult result)
+    /// <param name="result">What the import changed.</param>
+    /// <param name="downloads">What downloading the missing mods managed, when that was asked for.</param>
+    internal static IDialog ModListImported(ModListImportResult result, ModListDownloadResult? downloads = null)
     {
         var lines = new List<string>();
+
+        if (downloads is not null)
+            lines.Add($"Downloaded and installed {"mod".ToQuantity(downloads.Installed)}.");
 
         if (result.ModListStatus == ModListImportStatus.Applied)
         {
@@ -147,6 +181,7 @@ public static class LoadoutDialogs
                 break;
         }
 
+        if (downloads is not null) AppendUnmatched(lines, "Couldn't be downloaded or installed", downloads.Failed);
         AppendUnmatched(lines, "Named in modlist.txt but not installed", result.UnmatchedMods);
         AppendUnmatched(lines, "Named in plugins.txt but not in this loadout", result.UnmatchedPlugins);
 

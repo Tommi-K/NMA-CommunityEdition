@@ -46,6 +46,11 @@ public interface ILoadoutViewModel : IPageViewModelInterface
     ReactiveCommand<Unit> CommandImportModList { get; }
     ReactiveCommand<Unit> CommandExportModList { get; }
 
+    /// <summary>
+    /// Opens the page listing patches and translations for the loadout's mods.
+    /// </summary>
+    ReactiveCommand<NavigationInformation> CommandOpenPatchFinderPage { get; }
+
     // TODO: remove for GA
     bool EnableCollectionSharing { get; }
 }

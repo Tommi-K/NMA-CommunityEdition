@@ -236,6 +236,15 @@
                                                      ShowIcon="Left"
                                                      LeftIcon="{x:Static icons:IconValues.FileExportOutline}"
                                                      ToolTip.Tip="Save this list as a Mod Organizer modlist.txt and plugins.txt" />
+
+                            <navigation:NavigationControl x:Name="FindPatchesButton"
+                                                          Text="Find patches"
+                                                          Type="Tertiary"
+                                                          Size="Toolbar"
+                                                          Fill="None"
+                                                          ShowIcon="Left"
+                                                          LeftIcon="{x:Static icons:IconValues.PuzzleCheckOutline}"
+                                                          ToolTip.Tip="Look through the &quot;Mods requiring this file&quot; list of every mod in this loadout for patches and translations" />
                         </ItemsControl>
 
                         <!-- selection related button group -->
