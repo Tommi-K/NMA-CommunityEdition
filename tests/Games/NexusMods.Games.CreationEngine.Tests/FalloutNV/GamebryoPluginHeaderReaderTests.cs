@@ -110,10 +110,24 @@ public class GamebryoPluginHeaderReaderTests
     }
 
     /// <summary>
-    /// Builds a TES4 record the way the Gamebryo engines write it: a 20 byte record header,
+    /// A subrecord over 64KB has its size in an XXXX subrecord before it; the reader has to
+    /// use that size to find the subrecords that follow.
+    /// </summary>
+    [Fact]
+    public async Task SkipsASubrecordSizedByXxxx()
+    {
+        var bytes = BuildPlugin(masters: ["FalloutNV.esm"], largeSubrecordLength: 70_000);
+
+        var header = await GamebryoPluginHeaderReader.ReadAsync(new MemoryStream(bytes), "MyMod.esp");
+
+        header!.Value.Masters.Select(m => m.FileName.ToString()).Should().Equal("FalloutNV.esm");
+    }
+
+    /// <summary>
+    /// Builds a TES4 record the way Fallout 3 and New Vegas write it: a 24 byte record header,
     /// then subrecords of a 4 byte type, a 16 bit length and the data.
     /// </summary>
-    private static byte[] BuildPlugin(string[] masters, string? author = null, string? description = null, int overrideListLength = 0)
+    private static byte[] BuildPlugin(string[] masters, string? author = null, string? description = null, int overrideListLength = 0, int largeSubrecordLength = 0)
     {
         var body = new MemoryStream();
 
@@ -121,6 +135,15 @@ public class GamebryoPluginHeaderReaderTests
         var hedr = new byte[12];
         BinaryPrimitives.WriteSingleLittleEndian(hedr, 1.34f);
         WriteSubrecord(body, "HEDR", hedr);
+
+        // Not where the games put one, but a run of masters behind it shows the reader got past it.
+        if (largeSubrecordLength > 0)
+        {
+            WriteSubrecord(body, "XXXX", UInt32((uint)largeSubrecordLength));
+            body.Write("ONAM"u8);
+            body.Write(new byte[2]);
+            body.Write(new byte[largeSubrecordLength]);
+        }
 
         if (author is not null) WriteSubrecord(body, "CNAM", ZString(author));
         if (description is not null) WriteSubrecord(body, "SNAM", ZString(description));
@@ -143,6 +166,8 @@ public class GamebryoPluginHeaderReaderTests
         file.Write(UInt32(0));  // flags
         file.Write(UInt32(0));  // form id
         file.Write(UInt32(0));  // version control info
+        file.Write(UInt16(15)); // form version, 15 for New Vegas
+        file.Write(UInt16(0));  // version control info 2
         file.Write(data);
         return file.ToArray();
     }
@@ -162,6 +187,13 @@ public class GamebryoPluginHeaderReaderTests
     {
         var bytes = new byte[4];
         BinaryPrimitives.WriteUInt32LittleEndian(bytes, value);
+        return bytes;
+    }
+
+    private static byte[] UInt16(ushort value)
+    {
+        var bytes = new byte[2];
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes, value);
         return bytes;
     }
 }

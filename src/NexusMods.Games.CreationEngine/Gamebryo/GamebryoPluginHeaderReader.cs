@@ -7,8 +7,8 @@ using NexusMods.Games.CreationEngine.Abstractions;
 namespace NexusMods.Games.CreationEngine.Gamebryo;
 
 /// <summary>
-/// Reads the <c>TES4</c> header of a plugin written for the pre-Creation-Kit Gamebryo
-/// engines - Oblivion, Fallout 3 and Fallout: New Vegas.
+/// Reads the <c>TES4</c> header of a plugin written for the Gamebryo engines of
+/// Fallout 3 and Fallout: New Vegas.
 /// </summary>
 /// <remarks>
 /// Mutagen is used for the games it has record definitions for, but it has no
@@ -17,21 +17,22 @@ namespace NexusMods.Games.CreationEngine.Gamebryo;
 /// diagnostic), and they sit in the one record at the very start of the file, so reading
 /// it directly is both small and cheap.
 ///
-/// The layout is the Gamebryo one: a 20 byte record header followed by
-/// <c>dataSize</c> bytes of subrecords. Skyrim and later add four bytes to the record
-/// header, which is why this reader is not shared with them.
+/// The record header is 24 bytes, followed by <c>dataSize</c> bytes of subrecords.
+/// Oblivion's is 20 bytes, without the last two fields, so its plugins can't be read here.
 ///
 /// <code>
-/// record header   "TES4" | uint32 dataSize | uint32 flags | uint32 formId | uint32 vcInfo
+/// record header   "TES4" | uint32 dataSize | uint32 flags | uint32 formId | uint32 vcInfo | uint16 formVersion | uint16 vcInfo2
 /// subrecord       char[4] type | uint16 size | byte[size] data
 /// </code>
 ///
 /// Masters are a run of <c>MAST</c> (the filename, null terminated) and <c>DATA</c> (a
-/// file size the games ignore) pairs.
+/// file size the games ignore) pairs. A subrecord too large for its 16 bit size, like a
+/// long <c>ONAM</c> override list, is preceded by an <c>XXXX</c> subrecord holding its
+/// real size as a uint32, and its own size is then 0.
 /// </remarks>
 public static class GamebryoPluginHeaderReader
 {
-    private const int RecordHeaderSize = 20;
+    private const int RecordHeaderSize = 24;
     private const int SubrecordHeaderSize = 6;
 
     /// <summary>
@@ -49,6 +50,7 @@ public static class GamebryoPluginHeaderReader
 
     private static ReadOnlySpan<byte> Tes4 => "TES4"u8;
     private static ReadOnlySpan<byte> Mast => "MAST"u8;
+    private static ReadOnlySpan<byte> Xxxx => "XXXX"u8;
 
     /// <summary>
     /// Reads the header of the plugin on <paramref name="stream"/>, named
@@ -96,15 +98,29 @@ public static class GamebryoPluginHeaderReader
     {
         var masters = new List<ModKey>();
         var offset = 0;
+        uint? largeSize = null;
 
         while (offset + SubrecordHeaderSize <= body.Length)
         {
             var type = body.Slice(offset, 4);
-            var size = BinaryPrimitives.ReadUInt16LittleEndian(body.Slice(offset + 4, 2));
+            var size = (uint)BinaryPrimitives.ReadUInt16LittleEndian(body.Slice(offset + 4, 2));
             offset += SubrecordHeaderSize;
 
+            // The size an XXXX subrecord announced replaces the next subrecord's own.
+            if (largeSize is not null)
+            {
+                size = largeSize.Value;
+                largeSize = null;
+            }
+            else if (type.SequenceEqual(Xxxx) && size == 4 && offset + 4 <= body.Length)
+            {
+                largeSize = BinaryPrimitives.ReadUInt32LittleEndian(body.Slice(offset, 4));
+                offset += 4;
+                continue;
+            }
+
             // The last subrecord can be cut short by a truncated read; take what is there.
-            var available = Math.Min(size, body.Length - offset);
+            var available = (int)Math.Min(size, (uint)(body.Length - offset));
             if (available <= 0)
             {
                 if (size > 0) break;

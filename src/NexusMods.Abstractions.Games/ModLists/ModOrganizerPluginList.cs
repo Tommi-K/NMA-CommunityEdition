@@ -8,9 +8,11 @@ namespace NexusMods.Abstractions.Games;
 /// name per line, the plugin that loads first at the top.
 /// </summary>
 /// <remarks>
-/// Fallout New Vegas and Skyrim list plugin names bare, while Skyrim Special Edition and
-/// Fallout 4 mark the enabled ones with a leading <c>*</c>. <see cref="Parse"/> accepts both and
-/// <see cref="Write"/> emits the bare form, which every one of those games reads.
+/// Fallout New Vegas and Skyrim list the enabled plugins bare, while Skyrim Special Edition and
+/// Fallout 4 list every plugin and mark the enabled ones with a leading <c>*</c>: there, a bare
+/// name is a disabled plugin. <see cref="Parse"/> accepts both and returns the names alone, for
+/// ordering. <see cref="ParseEntries"/> keeps the marks, and <see cref="Write"/> writes the
+/// lines as given, so a file passed through the two stays in its own dialect.
 /// </remarks>
 [PublicAPI]
 public static class ModOrganizerPluginList
@@ -49,7 +51,27 @@ public static class ModOrganizerPluginList
     }
 
     /// <summary>
-    /// Writes the plugin file names as a <c>plugins.txt</c>, expecting them in load order.
+    /// Parses the contents of a <c>plugins.txt</c> into its entries, in load order, each with the
+    /// <c>*</c> that marks it enabled kept where it has one.
+    /// </summary>
+    public static List<string> ParseEntries(string contents)
+    {
+        var entries = new List<string>();
+
+        foreach (var rawLine in contents.Split('\n'))
+        {
+            var line = rawLine.Trim();
+            if (line.Length == 0 || line[0] == '#') continue;
+
+            entries.Add(line);
+        }
+
+        return entries;
+    }
+
+    /// <summary>
+    /// Writes the entries as a <c>plugins.txt</c>, expecting them in load order: plugin file
+    /// names, with a leading <c>*</c> in the dialect that marks the enabled ones.
     /// </summary>
     public static string Write(IEnumerable<string> pluginFileNames)
     {

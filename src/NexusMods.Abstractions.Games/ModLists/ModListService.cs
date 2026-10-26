@@ -386,9 +386,10 @@ public class ModListService : IModListService
         }
 
         // Otherwise the game may generate the file itself on apply, in which case we can ask it for
-        // the same contents it would write.
+        // the same contents it would write. Its entries are kept as they are: Mod Organizer reads the
+        // game's own dialect, and in the asterisk one a name without its `*` is a disabled plugin.
         var generated = await TryGenerateIntrinsicPluginList(loadout, token);
-        return generated is null ? null : ModOrganizerPluginList.Write(ModOrganizerPluginList.Parse(generated));
+        return generated is null ? null : ModOrganizerPluginList.Write(ModOrganizerPluginList.ParseEntries(generated));
     }
 
     private async ValueTask<(ModListImportStatus Status, int Ordered, string[] Unmatched)> ImportPluginList(

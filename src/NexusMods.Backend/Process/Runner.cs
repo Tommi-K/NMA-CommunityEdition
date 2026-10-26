@@ -112,6 +112,10 @@ internal class ProcessRunner : IProcessRunner
             var finished = await Task.WhenAny(task.Task, Task.Delay(ChildCheckInterval, cancellationToken));
             if (ReferenceEquals(finished, task.Task)) return await task;
 
+            // A cancelled delay finishes at once, so without this the loop would spin until the
+            // killed child is gone and then report the kill as a command that failed.
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (!TryCollectExitedChild(task.ProcessId, out var exitCode)) continue;
 
             // The child has gone, so its output is at an end; give the pipes their moment to

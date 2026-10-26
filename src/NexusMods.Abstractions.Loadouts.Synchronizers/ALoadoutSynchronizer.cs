@@ -1504,7 +1504,7 @@ public partial class ALoadoutSynchronizer : ILoadoutSynchronizer
     /// means copying the entire game into the archive store on first sync, which for a
     /// large game is tens of gigabytes. See <see cref="GameBaselineFile"/>.
     ///
-    /// Costs nothing extra to compute: the hashes were just written by the reindex.
+    /// Costs nothing extra to compute: the first index already hashed these files.
     /// </remarks>
     private async Task EnsureGameBaseline(GameInstallation installation, GameInstallMetadata.ReadOnly metadata)
     {
@@ -1526,10 +1526,17 @@ public partial class ALoadoutSynchronizer : ILoadoutSynchronizer
             return;
         }
 
+        // Take the folder as first indexed, not as it is now: this runs on every reindex,
+        // so when the baseline is recorded late (the hashes DB wasn't ready the first
+        // time, or the game was managed before baselines existed) the current state can
+        // already hold deployed mod files, which would then pass for game files.
+        if (!GameInstallMetadata.InitialDiskStateTransaction.TryGetValue(metadata, out var initialTx)) return;
+        var initialDb = Connection.AsOf(TxId.From(initialTx.Value));
+
         // The game layer of the sync tree only describes LocationId.Game, so anything
         // outside it would be misfiled.
         var diskState = DiskStateEntry
-            .FindByGame(metadata.Db, metadata)
+            .FindByGame(initialDb, metadata.Id)
             .Where(entry => entry.Path.Item2 == LocationId.Game)
             .ToArray();
 
