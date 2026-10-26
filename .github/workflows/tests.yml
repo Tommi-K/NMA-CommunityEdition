@@ -1,0 +1,69 @@
+name: Tests
+
+# Runs the test suite on Linux, without the tests that need network access or are known to be flaky.
+
+on:
+  push:
+    branches: [ "**" ]
+    paths:
+      - ".github/workflows/tests.yml"
+      - "src/**"
+      - "tests/**"
+      - "extern/**"
+      - "**.props"
+      - "**.targets"
+      - "**.sln"
+      - "global.json"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+  # Every test project copies all its dependencies into its bin/: hard-link them so the build fits on the runner disk.
+  CreateHardLinksForCopyLocalIfPossible: "true"
+  CreateHardLinksForCopyFilesToOutputDirectoryIfPossible: "true"
+  CreateHardLinksForAdditionalFilesIfPossible: "true"
+  CreateHardLinksForCopyAdditionalFilesIfPossible: "true"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Disk space (start)
+        run: df -h
+
+      # The runner image ships the .NET SDKs: no download from Microsoft's CDN, which can be down
+      # (actions/setup-dotnet failed there with HTTP 409 on 2026-10-25).
+      - name: Check .NET 10
+        run: |
+          dotnet --list-sdks
+          dotnet --list-sdks | grep -q '^10\.' || { echo "::error::No .NET 10 SDK on the runner image"; exit 1; }
+          dotnet --version
+
+      - name: Build
+        run: dotnet build --configuration Release
+
+      - name: Disk space (after build)
+        run: df -h
+
+      # global.json runs the tests on Microsoft.Testing.Platform. The tree-node filter works with both xunit and TUnit;
+      # exit code 8 means that the filter left no test in a project.
+      - name: Test
+        run: dotnet test --configuration Release --no-build --treenode-filter "/**[(RequiresNetworking!=True)&(FlakeyTest!=True)]" --ignore-exit-code 8 --timeout 20m
+
+      - name: Disk space (end)
+        if: always()
+        run: df -h

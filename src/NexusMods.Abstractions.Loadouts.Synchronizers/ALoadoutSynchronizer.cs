@@ -59,6 +59,11 @@ public partial class ALoadoutSynchronizer : ILoadoutSynchronizer
     private readonly StringPool _fileNamePool = new();
 
     /// <summary>
+    /// Game folders as first indexed, by the transaction that indexed them.
+    /// </summary>
+    private readonly ConcurrentDictionary<EntityId, (GamePath Path, Hash Hash, Size Size)[]> _initialStateGameFiles = new();
+
+    /// <summary>
     /// Connection.
     /// </summary>
     protected readonly IConnection Connection;
@@ -211,15 +216,20 @@ public partial class ALoadoutSynchronizer : ILoadoutSynchronizer
     public Dictionary<GamePath, SyncNode> BuildSyncTree<T>(T latestDiskState, T previousDiskState, Loadout.ReadOnly loadout) where T : IEnumerable<PathPartPair>
     {
         Dictionary<GamePath, SyncNode> syncTree = new();
+        HashSet<GamePath> deletedPaths = [];
 
         foreach (var tuple in WinningFilesQuery(Connection.Db, loadout))
         {
             var itemType = ToItemType(tuple.ItemType);
+            var gamePath = new GamePath(tuple.Location, tuple.Path);
 
             // NOTE(erri120): deleted files are not added to the sync tree
-            if (itemType == LoadoutSourceItemType.Deleted) continue;
+            if (itemType == LoadoutSourceItemType.Deleted)
+            {
+                deletedPaths.Add(gamePath);
+                continue;
+            }
 
-            var gamePath = new GamePath(tuple.Location, tuple.Path);
             if (gamePath == default(GamePath)) throw new Exception($"Item of type `{itemType}` with ID `{tuple.Id}` has no valid game path!");
 
             ref var syncTreeEntry = ref CollectionsMarshal.GetValueRefOrAddDefault(syncTree, gamePath, out var exists);
@@ -259,6 +269,27 @@ public partial class ALoadoutSynchronizer : ILoadoutSynchronizer
             {
                 SourceItemType = itemType,
                 Loadout = loadoutPart,
+            };
+        }
+
+        // Game files on the lowest layer: when the file hashes database doesn't know the installed version, the query
+        // has none and the game folder as first indexed stands in for them. Loadout, deleted and intrinsic files win.
+        foreach (var (gamePath, hash, size) in GetInitialStateGameFiles(loadout))
+        {
+            if (deletedPaths.Contains(gamePath)) continue;
+
+            ref var syncTreeEntry = ref CollectionsMarshal.GetValueRefOrAddDefault(syncTree, gamePath, out var exists);
+            if (exists) continue;
+
+            syncTreeEntry = new SyncNode
+            {
+                SourceItemType = LoadoutSourceItemType.Game,
+                Loadout = new SyncNodePart
+                {
+                    Hash = hash,
+                    Size = size,
+                    LastModifiedTicks = 0,
+                },
             };
         }
 
@@ -1079,21 +1110,10 @@ public partial class ALoadoutSynchronizer : ILoadoutSynchronizer
     {
         loadout = loadout.Rebase();
 
-        // Drop duplicate LoadoutFile entries for the same target path before
-        // building the sync tree. The SQL tie-break in WinningLeafLoadoutItem
-        // already picks the newest, so duplicates are harmless at read time —
-        // this is purely hygiene to keep the DB from accumulating stale entries
-        // left by aborted retires or repeated installs of the same mod.
-        loadout = await GcDuplicateLoadoutFiles(loadout);
-
-        // Retract stale DeletedFile markers that co-exist with an active
-        // LoadoutFile on the same LoadoutItem. This happens when the user
-        // manually removes a game folder / subtree that NMA still tracks:
-        // ActionIngestFromDisk creates DeletedFile markers, and any later
-        // re-enable of the item won't re-extract because the sync treats
-        // the marker as "user wants deleted". If a LoadoutFile still exists
-        // for that id, the user's intent is unambiguously to have the file.
-        loadout = await ClearContradictoryDeletedFileMarkers(loadout);
+        // Re-enabling a mod restores its files: retract the DeletedFile markers
+        // of files whose mod was disabled at the last sync and is enabled now.
+        // A file the user deletes while its mod stays enabled stays deleted.
+        loadout = await ClearDeletedFileMarkersOfReenabledFiles(loadout);
 
         // Update locator IDs before building the sync tree
         loadout = await UpdateLocatorIds(loadout);
@@ -1122,86 +1142,57 @@ public partial class ALoadoutSynchronizer : ILoadoutSynchronizer
     }
 
     /// <summary>
-    /// Deletes superseded LoadoutFile entries — same (loadout, target path) as
-    /// a newer entry — so the DB doesn't accumulate ghosts from past install /
-    /// retire / re-install cycles. Only the highest-Id row per path is kept.
-    /// The SQL <c>WinningLeafLoadoutItem</c> macro already filters duplicates
-    /// at read time; this is the write-side counterpart that frees DB space.
+    /// Remove DeletedFile markers whose TargetPath is claimed by a LoadoutFile
+    /// that is enabled now but was disabled at the last sync. When the user
+    /// removes files from disk, ActionIngestFromDisk records DeletedFile markers
+    /// in Overrides, and they keep winning because DoNothing tie-breaks against
+    /// the Deleted action: without this, re-enabling the mod group would never
+    /// re-extract its files. Files deleted while their mod stays enabled keep
+    /// their marker and stay deleted.
     /// </summary>
-    private async Task<Loadout.ReadOnly> GcDuplicateLoadoutFiles(Loadout.ReadOnly loadout)
+    private async Task<Loadout.ReadOnly> ClearDeletedFileMarkersOfReenabledFiles(Loadout.ReadOnly loadout)
     {
-        var groups = new Dictionary<(LocationId, RelativePath), List<(EntityId Id, LoadoutFile.ReadOnly Entry)>>();
-        foreach (var file in LoadoutFile.All(loadout.Db))
+        // DeletedFile markers of this loadout, by TargetPath.
+        var markers = new Dictionary<GamePath, List<EntityId>>();
+        foreach (var df in DeletedFile.All(loadout.Db))
         {
-            var item = file.AsLoadoutItemWithTargetPath();
-            if (!item.AsLoadoutItem().LoadoutId.Equals(loadout.LoadoutId)) continue;
-
-            var key = (item.TargetPath.Item2, item.TargetPath.Item3);
-            if (!groups.TryGetValue(key, out var list))
+            var dfItem = LoadoutItemWithTargetPath.Load(loadout.Db, df.Id);
+            if (!dfItem.IsValid()) continue;
+            if (!dfItem.AsLoadoutItem().LoadoutId.Equals(loadout.LoadoutId)) continue;
+            var path = new GamePath(dfItem.TargetPath.Item2, dfItem.TargetPath.Item3);
+            if (!markers.TryGetValue(path, out var ids))
             {
-                list = new List<(EntityId, LoadoutFile.ReadOnly)>(capacity: 1);
-                groups[key] = list;
+                ids = new List<EntityId>();
+                markers[path] = ids;
             }
-            list.Add((file.Id, file));
+            ids.Add(df.Id);
         }
 
-        var losers = new List<EntityId>();
-        foreach (var list in groups.Values)
-        {
-            if (list.Count < 2) continue;
-            // Keep the most recently inserted row; retract the rest.
-            list.Sort((a, b) => b.Id.Value.CompareTo(a.Id.Value));
-            for (var i = 1; i < list.Count; i++)
-                losers.Add(list[i].Id);
-        }
+        if (markers.Count == 0) return loadout;
+        if (!GameInstallMetadata.LastSyncedLoadoutTransaction.TryGetValue(loadout.Installation, out var lastSyncedTx)) return loadout;
+        var lastSyncedDb = Connection.AsOf(TxId.From(lastSyncedTx.Value));
 
-        if (losers.Count == 0) return loadout;
-
-        Logger.LogInformation("Pruning {Count} duplicate LoadoutFile entries from loadout {LoadoutId}", losers.Count, loadout.LoadoutId);
-        using var tx = Connection.BeginTransaction();
-        foreach (var id in losers)
-            tx.Delete(id, recursive: true);
-        await tx.Commit();
-
-        return loadout.Rebase();
-    }
-
-    /// <summary>
-    /// Remove DeletedFile markers whose TargetPath is claimed by an enabled
-    /// LoadoutFile in the same loadout. These contradictions arise when the
-    /// user manually removes a subtree that NMA had extracted while the mod
-    /// group was disabled: the sync ingested the disappearance as intent-to-
-    /// delete and dropped a marker in Overrides; once the mod group is
-    /// re-enabled the marker still wins because DoNothing tie-breaks against
-    /// the Deleted action. Dropping the contradicting markers restores the
-    /// mod's original intent so extraction resumes.
-    /// </summary>
-    private async Task<Loadout.ReadOnly> ClearContradictoryDeletedFileMarkers(Loadout.ReadOnly loadout)
-    {
-        // Enabled LoadoutFile TargetPaths in this loadout.
-        var claimed = new HashSet<GamePath>();
+        var toDelete = new List<EntityId>();
         foreach (var lf in LoadoutFile.All(loadout.Db))
         {
             var itemWithPath = lf.AsLoadoutItemWithTargetPath();
+            var path = new GamePath(itemWithPath.TargetPath.Item2, itemWithPath.TargetPath.Item3);
+            if (!markers.TryGetValue(path, out var ids)) continue;
+
             var item = itemWithPath.AsLoadoutItem();
             if (!item.LoadoutId.Equals(loadout.LoadoutId)) continue;
             if (IsChainDisabled(loadout.Db, item)) continue;
-            claimed.Add(new GamePath(itemWithPath.TargetPath.Item2, itemWithPath.TargetPath.Item3));
-        }
 
-        var toDelete = new List<EntityId>();
-        foreach (var df in DeletedFile.All(loadout.Db))
-        {
-            var lfItem = LoadoutItemWithTargetPath.Load(loadout.Db, df.Id);
-            if (!lfItem.IsValid()) continue;
-            if (!lfItem.AsLoadoutItem().LoadoutId.Equals(loadout.LoadoutId)) continue;
-            if (!claimed.Contains(new GamePath(lfItem.TargetPath.Item2, lfItem.TargetPath.Item3))) continue;
-            toDelete.Add(df.Id);
+            var itemAtLastSync = LoadoutItem.Load(lastSyncedDb, item.Id);
+            if (!itemAtLastSync.IsValid() || !IsChainDisabled(lastSyncedDb, itemAtLastSync)) continue;
+
+            toDelete.AddRange(ids);
+            markers.Remove(path);
         }
 
         if (toDelete.Count == 0) return loadout;
 
-        Logger.LogInformation("Clearing {Count} contradicting DeletedFile markers on loadout {LoadoutId}", toDelete.Count, loadout.LoadoutId);
+        Logger.LogInformation("Clearing {Count} DeletedFile markers of re-enabled files on loadout {LoadoutId}", toDelete.Count, loadout.LoadoutId);
         using var tx = Connection.BeginTransaction();
         foreach (var id in toDelete)
         {
@@ -1669,8 +1660,8 @@ public partial class ALoadoutSynchronizer : ILoadoutSynchronizer
 
     public async Task ResetToOriginalGameState(GameInstallation installation, LocatorId[] locatorIds)
     {
-        var gameState = _fileHashService.GetGameFiles((installation.LocatorResult.Store, locatorIds));
         var metadata = await ReindexState(installation);
+        var gameState = GetOriginalGameFiles(metadata, installation.LocatorResult.Store, locatorIds);
 
         var diskStateEntries = DiskStateEntry.FindByGame(metadata.Db, metadata);
 
@@ -1715,6 +1706,43 @@ public partial class ALoadoutSynchronizer : ILoadoutSynchronizer
 
         // Run the groupings
         await RunActions(desiredState, installation);
+    }
+
+    /// <summary>
+    /// The original game files: from the file hashes database, or from the game folder as first indexed when the
+    /// database doesn't know the installed version.
+    /// </summary>
+    private IEnumerable<(GamePath Path, Hash Hash, Size Size)> GetOriginalGameFiles(GameInstallMetadata.ReadOnly metadata, GameStore store, LocatorId[] locatorIds)
+    {
+        return _fileHashService.KnowsGameFiles((store, locatorIds))
+            ? _fileHashService.GetGameFiles((store, locatorIds)).Select(file => (file.Path, file.Hash, file.Size))
+            : GetInitialStateGameFiles(metadata);
+    }
+
+    /// <summary>
+    /// The game folder as first indexed when the file hashes database doesn't know the loadout's game version,
+    /// which NMA then uses as the original game files; empty otherwise.
+    /// </summary>
+    private IReadOnlyList<(GamePath Path, Hash Hash, Size Size)> GetInitialStateGameFiles(Loadout.ReadOnly loadout)
+    {
+        var metadata = GameInstallMetadata.Load(Connection.Db, loadout.InstallationId);
+        return _fileHashService.KnowsGameFiles((metadata.Store, loadout.LocatorIds.ToArray())) ? [] : GetInitialStateGameFiles(metadata);
+    }
+
+    private IReadOnlyList<(GamePath Path, Hash Hash, Size Size)> GetInitialStateGameFiles(GameInstallMetadata.ReadOnly metadata)
+    {
+        if (!GameInstallMetadata.InitialDiskStateTransaction.TryGetValue(metadata, out var initialTx)) return [];
+
+        return _initialStateGameFiles.GetOrAdd(initialTx, tx =>
+        {
+            var initialDb = Connection.AsOf(TxId.From(tx.Value));
+            var files = DiskStateEntry.FindByGame(initialDb, metadata.Id)
+                .Select(entry => ((GamePath)entry.Path, entry.Hash, entry.Size))
+                .ToArray();
+
+            Logger.LogInformation("The file hashes database doesn't know the game version installed at `{Path}`: using the {Count} files of the folder as first indexed as the original game files", metadata.Path, files.Length);
+            return files;
+        });
     }
 
     private static VanityVersion? TryReadPrimaryFileVersion(GameInstallation installation)
