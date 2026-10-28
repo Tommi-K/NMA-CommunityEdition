@@ -2,9 +2,12 @@ using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.ReactiveUI;
 using Avalonia.Platform;
 using NexusMods.App.UI.Extensions;
+using NexusMods.App.UI.WorkspaceSystem;
 using ReactiveUI;
 
 namespace NexusMods.App.UI.Windows;
@@ -79,6 +82,19 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel>
                 .BindTo(this, view => view.ViewModel!.IsActive)
                 .DisposeWith(disposables);
 
+            // the mouse's back and forward buttons. Tunnel, so nothing under the pointer
+            // takes the release for a click of its own first.
+            this.AddDisposableHandler(PointerReleasedEvent, OnPointerReleasedForHistory, RoutingStrategies.Tunnel)
+                .DisposeWith(disposables);
+
+            // nothing nearer the pointer took it: step the selected tab, as the top bar's buttons do
+            this.AddDisposableHandler(HistoryNavigation.RequestedEvent, (_, e) =>
+            {
+                e.Handled = true;
+                if (ViewModel?.WorkspaceController.ActiveWorkspace?.SelectedTab is { } tab)
+                    HistoryNavigation.Step(tab, e.IsForward);
+            }).DisposeWith(disposables);
+
             this.WhenAnyObservable(view => view.ViewModel!.BringWindowToFront)
                 .OnUI()
                 .Where(static shouldBringToFront => shouldBringToFront)
@@ -89,6 +105,18 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel>
                     Activate();
                 }).DisposeWith(disposables);
         });
+    }
+
+    private void OnPointerReleasedForHistory(object? sender, PointerReleasedEventArgs e)
+    {
+        if (HistoryNavigation.IsForward(e.InitialPressMouseButton) is not { } forward) return;
+        e.Handled = true;
+
+        // A dialog covers the workspace, and stepping the page behind it isn't what anyone means.
+        if (ViewModel?.CurrentOverlay is not null) return;
+        if (e.Source is not Interactive source) return;
+
+        source.RaiseEvent(new HistoryNavigationEventArgs(forward));
     }
 
     protected override void OnClosing(WindowClosingEventArgs e)

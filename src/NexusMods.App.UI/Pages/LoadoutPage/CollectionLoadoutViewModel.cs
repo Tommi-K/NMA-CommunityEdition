@@ -240,7 +240,7 @@ public class CollectionLoadoutViewModel : APageViewModel<ICollectionLoadoutViewM
                     viewModPageMessage =>
                     {
                         LoadoutViewModel.HandleOpenModPageFor(viewModPageMessage.Ids, connection,  
-                            serviceProvider.GetRequiredService<IOSInterop>(),
+                            serviceProvider,
                             cancellationToken);
                         return Task.CompletedTask;
                     },

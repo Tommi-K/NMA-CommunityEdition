@@ -7,6 +7,7 @@ using Avalonia.Media;
 using JetBrains.Annotations;
 using Markdown.Avalonia.Plugins;
 using Markdown.Avalonia.Utils;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NexusMods.Sdk.Resources;
@@ -64,6 +65,12 @@ public class MarkdownRendererViewModel : AViewModel<IMarkdownRendererViewModel>,
         OpenLinkCommand = ReactiveCommand.Create<string>(url =>
         {
             if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return;
+
+            // Nexus Mods pages open in a tab, where the user is signed in and a download from
+            // the page reaches the app, such as the mod a health check says is missing. Other
+            // sites and launcher links (steam://, goggalaxy://) still go out to the system.
+            if (IsNexusModsPage(uri) && serviceProvider.GetService<IInAppBrowser>()?.TryOpen(uri, uri.Host + uri.AbsolutePath.TrimEnd('/')) == true) return;
+
             osInterop.OpenUri(uri);
         });
 
@@ -84,6 +91,17 @@ public class MarkdownRendererViewModel : AViewModel<IMarkdownRendererViewModel>,
                 .BindToVM(this, vm => vm.Contents)
                 .DisposeWith(disposables);
         });
+    }
+
+    private static bool IsNexusModsPage(Uri uri)
+    {
+        if (!uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) &&
+            !uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)) return false;
+
+        // Matched on a label boundary so a lookalike domain can't pass.
+        var host = uri.Host;
+        return host.Equals("nexusmods.com", StringComparison.OrdinalIgnoreCase) ||
+               host.EndsWith(".nexusmods.com", StringComparison.OrdinalIgnoreCase);
     }
 
     private void ParseGitHubUri(Uri? markdownUri)

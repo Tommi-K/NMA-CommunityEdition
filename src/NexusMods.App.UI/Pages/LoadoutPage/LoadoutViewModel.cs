@@ -710,7 +710,7 @@ public class LoadoutViewModel : APageViewModel<ILoadoutViewModel>, ILoadoutViewM
                             viewModPageMessage =>
                             {
                                 HandleOpenModPageFor(viewModPageMessage.Ids, _connection, 
-                                    _serviceProvider.GetRequiredService<IOSInterop>(), 
+                                    _serviceProvider, 
                                     cancellationToken);
                                 return Task.CompletedTask;
                             },
@@ -866,7 +866,7 @@ public class LoadoutViewModel : APageViewModel<ILoadoutViewModel>, ILoadoutViewM
         workspaceController.OpenPage(workspaceController.ActiveWorkspaceId, pageData, workspaceController.GetOpenPageBehavior(pageData, navInfo));
     }
 
-    internal static void HandleOpenModPageFor(LoadoutItemId[] ids, IConnection connection, IOSInterop os, CancellationToken cancellationToken)
+    internal static void HandleOpenModPageFor(LoadoutItemId[] ids, IConnection connection, IServiceProvider serviceProvider, CancellationToken cancellationToken)
     {
         if (ids.Length == 0) return;
         var loadoutItemId = ids.First();
@@ -879,7 +879,13 @@ public class LoadoutViewModel : APageViewModel<ILoadoutViewModel>, ILoadoutViewM
         var modPage = nexusModsLibraryItem.Value.ModPageMetadata;
 
         var url = NexusModsUrlBuilder.GetModUri(modPage.GameDomain, modPage.Uid.ModId);
-        os.OpenUri(url);
+
+        // In a tab, as from the Library, and out to the system browser only when there is
+        // no tab to open.
+        var inAppBrowser = serviceProvider.GetService<IInAppBrowser>();
+        if (inAppBrowser?.TryOpen(url, modPage.Name) == true) return;
+
+        serviceProvider.GetRequiredService<IOSInterop>().OpenUri(url);
     }
 
     private Uri GetCollectionChangelogUri(CollectionMetadata.ReadOnly collection)

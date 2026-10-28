@@ -82,6 +82,14 @@ public partial class PanelView : ReactiveUserControl<IPanelViewModel>
                 if (ViewModel is not null) ViewModel.IsSelected = true;
             }, routes: RoutingStrategies.Direct | RoutingStrategies.Bubble, handledEventsToo: true).DisposeWith(disposables);
 
+            // the mouse's back and forward buttons over this panel step this panel's tab
+            this.AddDisposableHandler(HistoryNavigation.RequestedEvent, (_, e) =>
+            {
+                if (ViewModel is null) return;
+                e.Handled = true;
+                HistoryNavigation.Step(ViewModel.SelectedTab, e.IsForward);
+            }).DisposeWith(disposables);
+
             // drag a tab header sideways to reorder it. handledEventsToo is needed because
             // the header itself handles the press to select the tab.
             TabHeaders.AddDisposableHandler(PointerPressedEvent, OnTabHeaderPointerPressed,

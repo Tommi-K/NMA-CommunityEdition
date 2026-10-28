@@ -1,10 +1,13 @@
 using System.Diagnostics;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
+using Avalonia.Interactivity;
 using Avalonia.ReactiveUI;
 using Avalonia.Threading;
 using Microsoft.Extensions.Logging;
+using NexusMods.App.UI.WorkspaceSystem;
 using ReactiveUI;
+using Xilium.CefGlue;
 using Xilium.CefGlue.Avalonia;
 using Xilium.CefGlue.Common.Events;
 
@@ -32,6 +35,7 @@ public partial class BrowserPageView : ReactiveUserControl<IBrowserPageViewModel
             browser.TitleChanged += OnTitleChanged;
             browser.LoadError += OnLoadError;
             browser.LoadingStateChange += OnLoadingStateChange;
+            browser.LoadStart += OnLoadStart;
             browser.LoadEnd += OnLoadEnd;
             browser.ConsoleMessage += OnConsoleMessage;
 
@@ -41,6 +45,7 @@ public partial class BrowserPageView : ReactiveUserControl<IBrowserPageViewModel
                 browser.TitleChanged -= OnTitleChanged;
                 browser.LoadError -= OnLoadError;
                 browser.LoadingStateChange -= OnLoadingStateChange;
+                browser.LoadStart -= OnLoadStart;
                 browser.LoadEnd -= OnLoadEnd;
                 browser.ConsoleMessage -= OnConsoleMessage;
             }).DisposeWith(d);
@@ -54,6 +59,15 @@ public partial class BrowserPageView : ReactiveUserControl<IBrowserPageViewModel
             ViewModel!.CommandGoBack.Subscribe(_ => browser.GoBack()).DisposeWith(d);
             ViewModel!.CommandGoForward.Subscribe(_ => browser.GoForward()).DisposeWith(d);
             ViewModel!.CommandReload.Subscribe(_ => browser.Reload(ignoreCache: false)).DisposeWith(d);
+
+            // The mouse's back and forward buttons step the browser's own history first;
+            // left unhandled, they go on to step the tab's.
+            this.AddDisposableHandler(HistoryNavigation.RequestedEvent, (_, e) =>
+            {
+                if (ViewModel is null) return;
+                if (HistoryNavigation.TryExecute(e.IsForward ? ViewModel.CommandGoForward : ViewModel.CommandGoBack))
+                    e.Handled = true;
+            }).DisposeWith(d);
 
             this.WhenAnyValue(view => view.ViewModel!.Address)
                 .Where(static address => !string.IsNullOrWhiteSpace(address))
@@ -117,11 +131,15 @@ public partial class BrowserPageView : ReactiveUserControl<IBrowserPageViewModel
         });
     }
 
+    private void OnLoadStart(object sender, LoadStartEventArgs e) => InjectMouseHistoryScript(e.Frame);
+
     /// <summary>
     /// A tab opened to start a download gets it going itself once the page is there.
     /// </summary>
     private void OnLoadEnd(object sender, LoadEndEventArgs e)
     {
+        InjectMouseHistoryScript(e.Frame);
+
         // Sub-frames load too, and a Nexus page has plenty; only the page itself matters.
         if (!e.Frame.IsMain) return;
 
@@ -130,6 +148,27 @@ public partial class BrowserPageView : ReactiveUserControl<IBrowserPageViewModel
         var url = e.Frame.Url;
 
         PostToUi(() => StartDownloadWhenReady(url));
+    }
+
+    /// <summary>
+    /// Hands the mouse's back and forward buttons in <paramref name="frame"/> over to the
+    /// app. Every frame gets it, since the pointer can be over any of them.
+    /// </summary>
+    /// <remarks>
+    /// Run at the start of a load, so the buttons work while a slow page is still loading,
+    /// and again at the end, in case the document the first run landed in was replaced.
+    /// Called on a Chromium thread, where an escaping exception would abort the process.
+    /// </remarks>
+    private static void InjectMouseHistoryScript(CefFrame frame)
+    {
+        try
+        {
+            frame.ExecuteJavaScript(MouseHistoryScript.Source, frame.Url, line: 0);
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine($"Unable to inject the mouse history script: {e}");
+        }
     }
 
     /// <summary>
@@ -152,7 +191,8 @@ public partial class BrowserPageView : ReactiveUserControl<IBrowserPageViewModel
     }
 
     /// <summary>
-    /// Surfaces the injected script's own reports in the app log.
+    /// Surfaces the injected script's own reports in the app log, and passes on the mouse
+    /// history buttons <see cref="MouseHistoryScript"/> reports.
     /// </summary>
     /// <remarks>
     /// Filtered to the script's marker: the rest of a page's console output is not ours and
@@ -162,6 +202,21 @@ public partial class BrowserPageView : ReactiveUserControl<IBrowserPageViewModel
     private void OnConsoleMessage(object sender, ConsoleMessageEventArgs e)
     {
         var message = e.Message;
+
+        // A page could log these lines itself, but all that gets it is a step through history.
+        bool? historyForward = message switch
+        {
+            MouseHistoryScript.BackMessage => false,
+            MouseHistoryScript.ForwardMessage => true,
+            _ => null,
+        };
+
+        if (historyForward is { } forward)
+        {
+            PostToUi(() => RaiseEvent(new HistoryNavigationEventArgs(forward)));
+            return;
+        }
+
         if (message is null || !message.StartsWith(AutoDownloadScript.LogPrefix, StringComparison.Ordinal)) return;
 
         PostToUi(() =>
