@@ -18,12 +18,13 @@ public readonly record struct ViewModPageMessage(LoadoutItemId[] Ids);
 public readonly record struct ViewModFilesMessage(LoadoutItemId[] Ids, NavigationInformation NavigationInformation);
 public readonly record struct UninstallItemMessage(LoadoutItemId[] Ids);
 public readonly record struct FindPatchesMessage(LoadoutItemId[] Ids, NavigationInformation NavigationInformation);
+public readonly record struct InstallRequirementsMessage(LoadoutItemId[] Ids);
 
 public class LoadoutTreeDataGridAdapter :
     TreeDataGridAdapter<CompositeItemModel<EntityId>, EntityId>,
-    ITreeDataGirdMessageAdapter<OneOf<ToggleEnableStateMessage, OpenCollectionMessage, ViewModPageMessage, ViewModFilesMessage, UninstallItemMessage, FindPatchesMessage>>
+    ITreeDataGirdMessageAdapter<OneOf<ToggleEnableStateMessage, OpenCollectionMessage, ViewModPageMessage, ViewModFilesMessage, UninstallItemMessage, FindPatchesMessage, InstallRequirementsMessage>>
 {
-    public Subject<OneOf<ToggleEnableStateMessage, OpenCollectionMessage, ViewModPageMessage, ViewModFilesMessage, UninstallItemMessage, FindPatchesMessage>> MessageSubject { get; } = new();
+    public Subject<OneOf<ToggleEnableStateMessage, OpenCollectionMessage, ViewModPageMessage, ViewModFilesMessage, UninstallItemMessage, FindPatchesMessage, InstallRequirementsMessage>> MessageSubject { get; } = new();
 
     private readonly ILoadoutDataProvider[] _loadoutDataProviders;
     private readonly LoadoutFilter _loadoutFilter;
@@ -130,6 +131,18 @@ public class LoadoutTreeDataGridAdapter :
                 var ids = GetLoadoutItemIds(model).ToArray();
 
                 self.MessageSubject.OnNext(new FindPatchesMessage(ids, navInfo));
+            })
+        );
+
+        model.SubscribeToComponentAndTrack<LoadoutComponents.InstallRequirementsAction, LoadoutTreeDataGridAdapter>(
+            key: LoadoutColumns.EnabledState.InstallRequirementsComponentKey,
+            state: this,
+            factory: static (self, itemModel, component) => component.Command.Subscribe((self, itemModel, component), static (_, tuple) =>
+            {
+                var (self, model, _) = tuple;
+                var ids = GetLoadoutItemIds(model).ToArray();
+
+                self.MessageSubject.OnNext(new InstallRequirementsMessage(ids));
             })
         );
 

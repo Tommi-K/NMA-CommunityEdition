@@ -100,6 +100,7 @@ public class LoadoutViewModel : APageViewModel<ILoadoutViewModel>, ILoadoutViewM
     public ReactiveCommand<Unit> CommandImportModList { get; }
     public ReactiveCommand<Unit> CommandExportModList { get; }
     public ReactiveCommand<NavigationInformation> CommandOpenPatchFinderPage { get; }
+    public ReactiveCommand<Unit> CommandInstallRequirements { get; }
 
     public bool EnableCollectionSharing { get; }
 
@@ -462,6 +463,12 @@ public class LoadoutViewModel : APageViewModel<ILoadoutViewModel>, ILoadoutViewM
             ? $"the mods in \"{LoadoutItem.Load(_connection.Db, collectionGroupId.Value).Name}\""
             : "all your installed mods";
 
+        // Mods fetched from this page go into the collection it shows, when the user can add to it;
+        // otherwise wherever the loadout puts new mods.
+        var installParent = collectionGroupId.HasValue && !CollectionGroup.Load(_connection.Db, collectionGroupId.Value).IsReadOnly
+            ? collectionGroupId.Convert(static id => (LoadoutItemGroupId)id.Value)
+            : Optional<LoadoutItemGroupId>.None;
+
         CommandImportModList = new ReactiveCommand<Unit>(async (_, cancellationToken) =>
             {
                 var paths = await _avaloniaInterop.OpenFilePickerAsync(new FilePickerOpenOptions
@@ -516,14 +523,8 @@ public class LoadoutViewModel : APageViewModel<ILoadoutViewModel>, ILoadoutViewM
                 {
                     _notificationService.ShowToast($"Downloading {"mod".ToQuantity(downloadable.Length)} from the imported list…");
 
-                    // Into the collection the import is for, when the user can add to it; otherwise
-                    // wherever the loadout puts new mods.
-                    var parent = collectionGroupId.HasValue && !CollectionGroup.Load(_connection.Db, collectionGroupId.Value).IsReadOnly
-                        ? collectionGroupId.Convert(static id => (LoadoutItemGroupId)id.Value)
-                        : Optional<LoadoutItemGroupId>.None;
-
                     downloads = await serviceProvider.GetRequiredService<ModListDownloader>()
-                        .DownloadAndInstall(loadoutId, downloadable, parent, cancellationToken);
+                        .DownloadAndInstall(loadoutId, downloadable, installParent, cancellationToken);
                 }
                 else if (confirmation.ButtonId != ButtonDefinitionId.Accept)
                 {
@@ -596,6 +597,19 @@ public class LoadoutViewModel : APageViewModel<ILoadoutViewModel>, ILoadoutViewM
                 var behavior = workspaceController.GetOpenPageBehavior(pageData, info);
                 workspaceController.OpenPage(workspaceController.ActiveWorkspaceId, pageData, behavior);
             }
+        );
+
+        var requirementInstaller = serviceProvider.GetRequiredService<RequirementInstaller>();
+
+        CommandInstallRequirements = new ReactiveCommand<Unit>(async (_, cancellationToken) =>
+            {
+                // Read before anything is awaited: the selection belongs to the UI thread.
+                var ids = Adapter.SelectedModels
+                    .SelectMany(static itemModel => GetLoadoutItemIds(itemModel))
+                    .ToHashSet();
+
+                await requirementInstaller.Run(windowManager, loadoutId, ids, installParent, cancellationToken);
+            }, maxSequential: 1, configureAwait: false
         );
 
         CommandDeselectItems = new ReactiveCommand<Unit>(_ => { Adapter.ClearSelection(); });
@@ -714,7 +728,9 @@ public class LoadoutViewModel : APageViewModel<ILoadoutViewModel>, ILoadoutViewM
                                     findPatchesMessage.NavigationInformation,
                                     loadoutId, GetWorkspaceController(), _connection);
                                 return Task.CompletedTask;
-                            }
+                            },
+                            installRequirementsMessage => requirementInstaller.Run(windowManager, loadoutId,
+                                installRequirementsMessage.Ids, installParent, cancellationToken)
                         );
                     }, awaitOperation: AwaitOperation.Parallel, configureAwait: false
                 ).AddTo(disposables);

@@ -176,6 +176,11 @@ public static class LoadoutDataProviderHelper
     {
         itemModel.Add(LoadoutColumns.EnabledState.FindPatchesComponentKey, new LoadoutComponents.FindPatchesAction());
     }
+
+    public static void AddInstallRequirementsActionComponent(CompositeItemModel<EntityId> itemModel)
+    {
+        itemModel.Add(LoadoutColumns.EnabledState.InstallRequirementsComponentKey, new LoadoutComponents.InstallRequirementsAction());
+    }
     
     public static void AddDateComponent(
         CompositeItemModel<EntityId> parentItemModel,

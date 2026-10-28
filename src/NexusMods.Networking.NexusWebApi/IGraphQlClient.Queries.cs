@@ -136,4 +136,13 @@ public partial interface IGraphQlClient
         IReadOnlyList<ModUid> mods,
         int requirementCount,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Queries the name, status and whole "Requirements" list of each of <paramref name="mods"/>,
+    /// including the requirements hosted elsewhere.
+    /// </summary>
+    ValueTask<GraphQlResult<ModRequirementList[]>> QueryModRequirements(
+        IReadOnlyList<ModUid> mods,
+        int requirementCount,
+        CancellationToken cancellationToken = default);
 }

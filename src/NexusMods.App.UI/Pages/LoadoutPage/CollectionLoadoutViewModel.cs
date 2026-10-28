@@ -258,7 +258,11 @@ public class CollectionLoadoutViewModel : APageViewModel<ICollectionLoadoutViewM
                             findPatchesMessage.NavigationInformation,
                             pageContext.LoadoutId, GetWorkspaceController(), connection);
                         return Task.CompletedTask;
-                    }
+                    },
+                    // A collection from Nexus Mods can't be added to, so what it is missing goes
+                    // wherever the loadout puts new mods.
+                    installRequirementsMessage => serviceProvider.GetRequiredService<RequirementInstaller>()
+                        .Run(windowManager, pageContext.LoadoutId, installRequirementsMessage.Ids, Optional<LoadoutItemGroupId>.None, cancellationToken)
                 );
             }, awaitOperation: AwaitOperation.Parallel, configureAwait: false).AddTo(disposables);
         });

@@ -267,6 +267,15 @@
                                                           LeftIcon="{x:Static icons:IconValues.Folder}"
                                                           ToolTip.Tip="{x:Static resources:Language.LoadoutGridView__View_Files_ToolTip}" />
 
+                            <controls:StandardButton x:Name="InstallRequirementsButton"
+                                                     Text="Install requirements"
+                                                     Type="Tertiary"
+                                                     Size="Toolbar"
+                                                     Fill="None"
+                                                     ShowIcon="Left"
+                                                     LeftIcon="{x:Static icons:IconValues.PlaylistAdd}"
+                                                     ToolTip.Tip="Download and install what the selected mods' &quot;Requirements&quot; lists on Nexus Mods name and this loadout lacks" />
+
                             <controls:StandardButton x:Name="DeleteButton"
                                                      Text="{x:Static resources:Language.LoadoutGridView__Remove}"
                                                      Type="Tertiary"

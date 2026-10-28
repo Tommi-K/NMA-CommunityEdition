@@ -51,6 +51,11 @@ public interface ILoadoutViewModel : IPageViewModelInterface
     /// </summary>
     ReactiveCommand<NavigationInformation> CommandOpenPatchFinderPage { get; }
 
+    /// <summary>
+    /// Installs what the selected mods require from Nexus Mods and the loadout lacks.
+    /// </summary>
+    ReactiveCommand<Unit> CommandInstallRequirements { get; }
+
     // TODO: remove for GA
     bool EnableCollectionSharing { get; }
 }

@@ -199,6 +199,39 @@ public static class LoadoutDialogs
     }
 
     /// <summary>
+    /// What installing requirements did, in a sentence.
+    /// </summary>
+    /// <param name="installed">How many were downloaded or copied out of a switched-off collection.</param>
+    /// <param name="switchedOn">How many the user had switched off were switched back on.</param>
+    internal static string DescribeRequirementsInstalled(int installed, int switchedOn) => (installed, switchedOn) switch
+    {
+        (_, 0) => $"Installed {"requirement".ToQuantity(installed)}.",
+        (0, _) => $"Switched {"requirement".ToQuantity(switchedOn)} back on.",
+        _ => $"Installed {"requirement".ToQuantity(installed)} and switched {switchedOn} back on.",
+    };
+
+    /// <summary>
+    /// Reports the requirements that couldn't be downloaded or installed.
+    /// </summary>
+    internal static IDialog RequirementsInstalled(int installed, int switchedOn, IReadOnlyList<string> failed)
+    {
+        var lines = new List<string> { DescribeRequirementsInstalled(installed, switchedOn) };
+        AppendUnmatched(lines, "Couldn't be downloaded or installed", failed.ToArray());
+
+        return DialogFactory.CreateStandardDialog(
+            "Requirements installed",
+            new StandardDialogParameters()
+            {
+                Text = string.Join("\n\n", lines),
+                Icon = installed + switchedOn > 0 ? IconValues.PictogramCelebrate : IconValues.PictogramDownload,
+            },
+            [
+                new DialogButtonDefinition("Close", ButtonDefinitionId.Close, ButtonAction.Reject),
+            ]
+        );
+    }
+
+    /// <summary>
     /// The number of names a result dialog spells out before it falls back to a count.
     /// </summary>
     private const int MaxUnmatchedNamesShown = 15;

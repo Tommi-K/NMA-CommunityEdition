@@ -266,6 +266,34 @@ internal partial class GraphQlClient : IGraphQlClient
         );
     }
 
+    public async ValueTask<GraphQlResult<ModRequirementList[]>> QueryModRequirements(IReadOnlyList<ModUid> mods, int requirementCount, CancellationToken cancellationToken)
+    {
+        var operationResult = await _client.QueryModRequirements.ExecuteAsync(
+            ids: mods.Select(ToCompositeId).ToArray(),
+            modCount: mods.Count,
+            requirementCount: requirementCount,
+            cancellationToken: cancellationToken
+        );
+
+        return operationResult.Transform(static result => result.LegacyMods, static page => page.Nodes
+            .Select(static node => new ModRequirementList(
+                Uid: ToModUid(node.ModId, node.GameId),
+                Name: node.Name,
+                Status: node.Status,
+                Requirements: node.ModRequirements.NexusRequirements.Nodes
+                    .Select(static requirement => new ModRequirementEntry(
+                        Uid: !requirement.ExternalRequirement && TryParseModUid(requirement.ModId, requirement.GameId, out var uid) ? uid : null,
+                        Name: requirement.ModName,
+                        IsExternal: requirement.ExternalRequirement,
+                        Url: string.IsNullOrWhiteSpace(requirement.Url) ? null : requirement.Url,
+                        Notes: string.IsNullOrWhiteSpace(requirement.Notes) ? null : requirement.Notes
+                    ))
+                    .ToArray()
+            ))
+            .ToArray()
+        );
+    }
+
     private static CompositeIdInput ToCompositeId(ModUid uid) => new()
     {
         GameId = (int)uid.GameId.Value,

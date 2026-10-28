@@ -1,8 +1,11 @@
 using Microsoft.Extensions.DependencyInjection;
 using NexusMods.Abstractions.Cli;
+using NexusMods.Abstractions.Loadouts;
+using NexusMods.Abstractions.NexusModsLibrary;
 using NexusMods.Abstractions.NexusWebApi;
 using NexusMods.Abstractions.NexusWebApi.Types;
 using NexusMods.Networking.NexusWebApi.Patches;
+using NexusMods.Networking.NexusWebApi.Requirements;
 using NexusMods.Paths;
 using NexusMods.Sdk.Loadouts;
 using NexusMods.Sdk.NexusModsApi;
@@ -17,7 +20,8 @@ internal static class NexusApiVerbs
             .AddModule("nexus", "Commands for interacting with the Nexus Mods API")
             .AddVerb(() => NexusApiVerify)
             .AddVerb(() => NexusDownloadLinks)
-            .AddVerb(() => NexusFindPatches);
+            .AddVerb(() => NexusFindPatches)
+            .AddVerb(() => NexusFindRequirements);
 
 
     [Verb("nexus verify", "Verifies the logged in account via the Nexus API")]
@@ -104,6 +108,53 @@ internal static class NexusApiVerbs
                 string.Join(", ", match.ForInstalledMods),
                 match.HasAllRequirements ? "-" : "needs " + string.Join(", ", match.MissingRequirements),
                 match.Uri);
+        }
+
+        return 0;
+    }
+
+    [Verb("nexus find-requirements", "Lists what the loadout's mods require from their \"Requirements\" lists on Nexus Mods and is missing or switched off")]
+    private static async Task<int> NexusFindRequirements([Injected] IRenderer renderer,
+        [Option("l", "loadout", "Loadout to check")] Loadout.ReadOnly loadout,
+        [Option("m", "mod", "Nexus Mods id of one installed mod to check, instead of all of them", true)] string? modId,
+        [Injected] IRequirementFinder requirementFinder,
+        [Injected] CancellationToken token)
+    {
+        ModUid[] mods;
+        if (modId is not null)
+        {
+            if (!uint.TryParse(modId, out var parsed)) return await renderer.InputError("{0} is not a mod id", modId);
+            mods = [new ModUid(ModId.From(parsed), loadout.Installation.GameId)];
+        }
+        else
+        {
+            mods = LoadoutItem.FindByLoadout(loadout.Db, loadout.LoadoutId)
+                .OfTypeLoadoutItemGroup()
+                .OfTypeLibraryLinkedLoadoutItem()
+                .Select(static linked => linked.LibraryItem.TryGetAsNexusModsLibraryItem(out var item) ? item.ModPageMetadata.Uid : (ModUid?)null)
+                .OfType<ModUid>()
+                .Distinct()
+                .ToArray();
+        }
+
+        var result = await requirementFinder.Find(loadout.LoadoutId, mods, token);
+
+        await renderer.TextLine("Checked {0} mods, {1} requirements already installed, {2} failed requests{3}",
+            result.ModsChecked.Length, result.AlreadyInstalled, result.FailedRequests, result.Truncated ? ", stopped early" : string.Empty);
+
+        // A line each, like find-patches: the names are long.
+        foreach (var requirement in result.Requirements)
+        {
+            var notes = requirement.RequiredBy.Select(static link => link.Notes).OfType<string>().Distinct().ToArray();
+
+            await renderer.TextLine("{0}\t{1}\t{2}\t{3}\t{4}",
+                requirement.State + (requirement.IsOptional ? " (optional)" : string.Empty),
+                requirement.Name,
+                "for " + string.Join(", ", requirement.RequiredBy.Select(static link => link.Mod.Name + (link.IsOptional ? "?" : string.Empty))),
+                requirement.Reason ??
+                (requirement.CollectionName is not null ? $"in \"{requirement.CollectionName}\" ({requirement.FileName})" : null) ??
+                (notes.Length > 0 ? string.Join(" / ", notes) : "-"),
+                requirement.Uri?.GetLeftPart(UriPartial.Path) ?? "-");
         }
 
         return 0;

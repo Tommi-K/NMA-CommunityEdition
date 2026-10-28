@@ -152,6 +152,35 @@ query QueryModRequirementDetails($ids: [CompositeIdInput!]!, $modCount: Int!, $r
     }
 }
 
+query QueryModRequirements($ids: [CompositeIdInput!]!, $modCount: Int!, $requirementCount: Int!)
+{
+    legacyMods(ids: $ids, count: $modCount)
+    {
+        nodes
+        {
+            modId
+            gameId
+            name
+            status
+            modRequirements
+            {
+                nexusRequirements(count: $requirementCount)
+                {
+                    nodes
+                    {
+                        modId
+                        gameId
+                        modName
+                        externalRequirement
+                        url
+                        notes
+                    }
+                }
+            }
+        }
+    }
+}
+
 query QueryModCategories($ids: [CompositeIdInput!]!, $modCount: Int!)
 {
     legacyMods(ids: $ids, count: $modCount)

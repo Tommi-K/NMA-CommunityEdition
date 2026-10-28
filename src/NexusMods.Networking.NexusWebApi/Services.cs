@@ -7,6 +7,7 @@ using NexusMods.Abstractions.NexusWebApi;
 using NexusMods.Abstractions.NexusWebApi.Types;
 using NexusMods.Networking.NexusWebApi.Auth;
 using NexusMods.Networking.NexusWebApi.Patches;
+using NexusMods.Networking.NexusWebApi.Requirements;
 using NexusMods.Networking.NexusWebApi.UpdateFilters;
 using NexusMods.Networking.NexusWebApi.V1Interop;
 using NexusMods.Sdk;
@@ -72,6 +73,10 @@ public static class Services
             .AddNexusModsLibraryModels()
             .AddSingleton<IGraphQlClient, GraphQlClient>()
             .AddSingleton<IPatchFinder, PatchFinder>()
+            .AddSingleton<IRequirementFinder, RequirementFinder>()
+            .AddSingleton<RequirementStandIns>()
+            .AddSingleton<IRequirementStandIns>(provider => provider.GetRequiredService<RequirementStandIns>())
+            .AddHostedService(provider => provider.GetRequiredService<RequirementStandIns>())
             .AddSingleton<NexusModsLibrary>()
             .AddAllSingleton<ILoginManager, LoginManager>()
             .AddAllSingleton<INexusApiClient, NexusApiClient>()

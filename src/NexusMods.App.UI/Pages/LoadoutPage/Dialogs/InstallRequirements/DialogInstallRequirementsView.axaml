@@ -1,0 +1,139 @@
+<reactiveUi:ReactiveUserControl x:TypeArguments="installRequirements:IDialogInstallRequirementsViewModel"
+                                xmlns="https://github.com/avaloniaui"
+                                xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                                xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+                                xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+                                xmlns:reactiveUi="http://reactiveui.net"
+                                xmlns:controls="clr-namespace:NexusMods.App.UI.Controls"
+                                xmlns:icons="clr-namespace:NexusMods.UI.Sdk.Icons;assembly=NexusMods.UI.Sdk"
+                                xmlns:installRequirements="clr-namespace:NexusMods.App.UI.Pages.LoadoutPage.Dialogs.InstallRequirements"
+                                mc:Ignorable="d" d:DesignWidth="600"
+                                x:Class="NexusMods.App.UI.Pages.LoadoutPage.Dialogs.InstallRequirements.DialogInstallRequirementsView">
+
+    <reactiveUi:ReactiveUserControl.Resources>
+        <!-- The templates have to be spelled out: without one, ReactiveUI binding the items fills
+             it in with a view lookup, which has no view for these and reports that as an error. -->
+        <DataTemplate x:Key="ToInstallTemplate" DataType="{x:Type installRequirements:RequirementItemViewModel}">
+            <Border Padding="8,6"
+                    Margin="0,0,0,4"
+                    CornerRadius="{StaticResource Rounded-md}"
+                    Background="{StaticResource SurfaceMidBrush}"
+                    Opacity="{CompiledBinding IsNeeded, Converter={x:Static installRequirements:DialogInstallRequirementsView.NeededToOpacity}}">
+                <Grid ColumnDefinitions="Auto, *, Auto">
+                    <CheckBox Grid.Column="0"
+                              VerticalAlignment="Top"
+                              IsChecked="{CompiledBinding IsSelected}"
+                              IsEnabled="{CompiledBinding IsNeeded}" />
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                        <TextBlock Text="{CompiledBinding Name}"
+                                   Theme="{StaticResource BodyMDSemiTheme}"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{CompiledBinding StatusText}"
+                                   IsVisible="{CompiledBinding StatusText, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                   Theme="{StaticResource BodySMNormalTheme}"
+                                   Foreground="{StaticResource NeutralStrongBrush}"
+                                   TextWrapping="Wrap" />
+                        <TextBlock Text="{CompiledBinding DetailText}"
+                                   Theme="{StaticResource BodySMNormalTheme}"
+                                   Foreground="{StaticResource NeutralSubduedBrush}"
+                                   TextWrapping="Wrap" />
+                        <TextBlock Text="Only mods you unticked need it, so it is skipped."
+                                   IsVisible="{CompiledBinding !IsNeeded}"
+                                   Theme="{StaticResource BodySMNormalTheme}"
+                                   Foreground="{StaticResource NeutralSubduedBrush}"
+                                   FontStyle="Italic" />
+                    </StackPanel>
+                    <controls:StandardButton Grid.Column="2"
+                                             Margin="8,0,0,0"
+                                             VerticalAlignment="Center"
+                                             Type="Tertiary"
+                                             Size="Small"
+                                             Fill="None"
+                                             ShowIcon="IconOnly"
+                                             ShowLabel="False"
+                                             LeftIcon="{x:Static icons:IconValues.OpenInNew}"
+                                             ToolTip.Tip="Open its page on Nexus Mods"
+                                             IsVisible="{CompiledBinding HasUri}"
+                                             Command="{CompiledBinding CommandOpen}" />
+                </Grid>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="ToCheckTemplate" DataType="{x:Type installRequirements:RequirementItemViewModel}">
+            <Border Padding="8,6"
+                    Margin="0,0,0,4"
+                    CornerRadius="{StaticResource Rounded-md}"
+                    Background="{StaticResource SurfaceMidBrush}">
+                <Grid ColumnDefinitions="*, Auto">
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
+                        <TextBlock Text="{CompiledBinding Name}"
+                                   Theme="{StaticResource BodyMDSemiTheme}"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{CompiledBinding StatusText}"
+                                   Theme="{StaticResource BodySMNormalTheme}"
+                                   Foreground="{StaticResource WarningStrongBrush}"
+                                   TextWrapping="Wrap" />
+                        <TextBlock Text="{CompiledBinding DetailText}"
+                                   Theme="{StaticResource BodySMNormalTheme}"
+                                   Foreground="{StaticResource NeutralSubduedBrush}"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+                    <controls:StandardButton Grid.Column="1"
+                                             Margin="8,0,0,0"
+                                             VerticalAlignment="Center"
+                                             Type="Tertiary"
+                                             Size="Small"
+                                             Fill="None"
+                                             ShowIcon="IconOnly"
+                                             ShowLabel="False"
+                                             LeftIcon="{x:Static icons:IconValues.OpenInNew}"
+                                             ToolTip.Tip="Open its page"
+                                             IsVisible="{CompiledBinding HasUri}"
+                                             Command="{CompiledBinding CommandOpen}" />
+                </Grid>
+            </Border>
+        </DataTemplate>
+    </reactiveUi:ReactiveUserControl.Resources>
+
+    <Grid RowDefinitions="Auto, *">
+        <StackPanel Grid.Row="0" Spacing="8" Margin="0,0,0,8">
+            <icons:UnifiedIcon Value="{x:Static icons:IconValues.PictogramDownload}"
+                               HorizontalAlignment="Left"
+                               Size="48" />
+            <TextBlock x:Name="SummaryText"
+                       Foreground="{StaticResource NeutralStrongBrush}"
+                       TextWrapping="Wrap" />
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" MaxHeight="420">
+            <StackPanel Spacing="12" Margin="0,0,12,0">
+                <StackPanel x:Name="ToInstallSection" Spacing="4">
+                    <Grid ColumnDefinitions="*, Auto">
+                        <TextBlock Grid.Column="0"
+                                   Text="Missing or switched off"
+                                   Theme="{StaticResource BodySMSemiTheme}"
+                                   Foreground="{StaticResource NeutralStrongBrush}" />
+                        <TextBlock Grid.Column="1"
+                                   x:Name="SelectedCountText"
+                                   Theme="{StaticResource BodySMNormalTheme}"
+                                   Foreground="{StaticResource NeutralSubduedBrush}" />
+                    </Grid>
+                    <ItemsControl x:Name="ToInstallItems" ItemTemplate="{StaticResource ToInstallTemplate}" />
+                </StackPanel>
+
+                <StackPanel x:Name="ToCheckSection" Spacing="4">
+                    <TextBlock Text="Needs your attention"
+                               Theme="{StaticResource BodySMSemiTheme}"
+                               Foreground="{StaticResource NeutralStrongBrush}" />
+                    <ItemsControl x:Name="ToCheckItems" ItemTemplate="{StaticResource ToCheckTemplate}" />
+                </StackPanel>
+
+                <TextBlock x:Name="FootnoteText"
+                           Theme="{StaticResource BodySMNormalTheme}"
+                           Foreground="{StaticResource NeutralSubduedBrush}"
+                           TextWrapping="Wrap" />
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+
+</reactiveUi:ReactiveUserControl>

@@ -52,3 +52,24 @@ public sealed record ModRequirementDetails(
     string Status,
     string? CategoryName,
     ModReference[] NexusRequirements);
+
+/// <summary>
+/// One entry of a mod page's "Requirements" list.
+/// </summary>
+/// <param name="Uid">The required mod, or null for an entry that names no mod on the site.</param>
+/// <param name="Name">The name the list gives it.</param>
+/// <param name="IsExternal">Whether it is hosted somewhere other than Nexus Mods, at <paramref name="Url"/>.</param>
+/// <param name="Url">Where to get it, when the list says.</param>
+/// <param name="Notes">What the author wrote about it, such as which version is needed.</param>
+[PublicAPI]
+public sealed record ModRequirementEntry(ModUid? Uid, string Name, bool IsExternal, string? Url, string? Notes);
+
+/// <summary>
+/// A mod page and its whole "Requirements" list, off-site entries included.
+/// </summary>
+/// <param name="Uid">The mod.</param>
+/// <param name="Name">Its name on the site.</param>
+/// <param name="Status">Its status on the site, such as <c>published</c> or <c>removed</c>.</param>
+/// <param name="Requirements">What it requires.</param>
+[PublicAPI]
+public sealed record ModRequirementList(ModUid Uid, string Name, string Status, ModRequirementEntry[] Requirements);

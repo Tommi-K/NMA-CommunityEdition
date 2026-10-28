@@ -147,6 +147,9 @@ public partial class LoadoutView : R3UserControl<ILoadoutViewModel>
                 this.BindCommand(ViewModel, vm => vm.CommandOpenPatchFinderPage, view => view.FindPatchesButton)
                     .AddTo(disposables);
 
+                this.BindCommand(ViewModel, vm => vm.CommandInstallRequirements, view => view.InstallRequirementsButton)
+                    .AddTo(disposables);
+
                 this.BindCommand(ViewModel, vm => vm.CommandChangeVisibility, view => view.ButtonChangeVisibility)
                     .AddTo(disposables);
 

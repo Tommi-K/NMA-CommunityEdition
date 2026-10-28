@@ -54,6 +54,7 @@ using NexusMods.App.UI.Pages.LoadoutGroupFilesPage;
 using NexusMods.App.UI.Pages.LoadoutPage;
 using NexusMods.App.UI.Pages.LoadoutPage.Dialogs;
 using NexusMods.App.UI.Pages.LoadoutPage.Dialogs.CollectionPublished;
+using NexusMods.App.UI.Pages.LoadoutPage.Dialogs.InstallRequirements;
 using NexusMods.App.UI.Pages.LoadoutPage.Dialogs.ShareCollection;
 using NexusMods.App.UI.Pages.MyGames;
 using NexusMods.App.UI.Pages.MyLoadouts;
@@ -237,6 +238,7 @@ public static class Services
             .AddViewModel<DialogStandardContentViewModel, IDialogStandardContentViewModel>()
             .AddView<DialogShareCollectionView, IDialogShareCollectionViewModel>()
             .AddViewModel<DialogShareCollectionViewModel, IDialogShareCollectionViewModel>()
+            .AddView<DialogInstallRequirementsView, IDialogInstallRequirementsViewModel>()
             .AddView<DialogCollectionPublishedView, IDialogCollectionPublishedViewModel>()
             .AddViewModel<DialogCollectionPublishedViewModel, IDialogCollectionPublishedViewModel>()
             
@@ -281,6 +283,7 @@ public static class Services
             .AddSingleton<BrowserDownloadTracker>()
             .AddSingleton<ModUpdateDownloader>()
             .AddSingleton<ModListDownloader>()
+            .AddSingleton<RequirementInstaller>()
             .AddSingleton<AdBlocker>()
             .AddSingleton<IPageFactory, MyLoadoutsPageFactory>()
             .AddSingleton<IPageFactory, LibraryPageFactory>()
@@ -311,6 +314,7 @@ public static class Services
 
             // Overlay Helpers
             .AddHostedService<NexusLoginOverlayService>()
+            .AddHostedService<RequirementStandInNotifier>()
 
             // Settings
             .AddUISettings()
