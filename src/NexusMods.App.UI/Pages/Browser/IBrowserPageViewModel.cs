@@ -63,9 +63,21 @@ public interface IBrowserPageViewModel : IPageViewModelInterface
 
     /// <summary>
     /// Handler the embedded browser filters its requests through, dropping the ones
-    /// aimed at known ad and tracker domains.
+    /// aimed at known ad and tracker domains. Also opens a ctrl- or middle-clicked link
+    /// in a new tab.
     /// </summary>
     public RequestHandler BrowserRequestHandler { get; }
+
+    /// <summary>
+    /// Handler that opens the windows a page asks for -- a <c>target="_blank"</c> link,
+    /// <c>window.open</c> -- as app tabs instead.
+    /// </summary>
+    public LifeSpanHandler BrowserLifeSpanHandler { get; }
+
+    /// <summary>
+    /// Handler that adds "Open link in new tab" to the right-click menu on a link.
+    /// </summary>
+    public ContextMenuHandler BrowserContextMenuHandler { get; }
 
     /// <summary>
     /// The script to run once <paramref name="pageUrl"/> has finished loading, or null when

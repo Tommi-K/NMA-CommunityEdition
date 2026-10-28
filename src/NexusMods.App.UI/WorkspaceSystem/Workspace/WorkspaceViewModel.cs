@@ -395,7 +395,7 @@ public class WorkspaceViewModel : AViewModel<IWorkspaceViewModel>, IWorkspaceVie
 
         behavior.Switch(
             f0: replaceTab => OpenPageReplaceTab(pageData, replaceTab, selectTab, checkOtherPanels),
-            f1: newTab => OpenPageInNewTab(pageData, newTab),
+            f1: newTab => OpenPageInNewTab(pageData, newTab, selectTab),
             f2: newPanel => OpenPageInNewPanel(pageData, newPanel)
         );
     }
@@ -442,10 +442,10 @@ public class WorkspaceViewModel : AViewModel<IWorkspaceViewModel>, IWorkspaceVie
         panel.SelectTab(tab.Id);
     }
 
-    private void OpenPageInNewTab(PageData pageData, OpenPageBehavior.NewTab newTab)
+    private void OpenPageInNewTab(PageData pageData, OpenPageBehavior.NewTab newTab, bool selectTab)
     {
         var panel = OptionalPanelOrFirst(newTab.PanelId);
-        panel.AddCustomTab(pageData);
+        panel.AddCustomTab(pageData, selectTab);
     }
 
     private static IPanelTabViewModel OptionalTabOrFirst(IPanelViewModel panel, Optional<PanelTabId> optionalTabId)

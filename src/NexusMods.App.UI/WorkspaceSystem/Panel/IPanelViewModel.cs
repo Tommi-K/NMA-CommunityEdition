@@ -91,7 +91,7 @@ public interface IPanelViewModel : IViewModelInterface
 
     public void AddDefaultTab();
 
-    public void AddCustomTab(PageData pageData);
+    public void AddCustomTab(PageData pageData, bool selectTab = true);
 
     /// <summary>
     /// Closes a tab.

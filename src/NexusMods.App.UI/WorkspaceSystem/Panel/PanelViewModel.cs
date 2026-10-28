@@ -187,7 +187,7 @@ public class PanelViewModel : AViewModel<IPanelViewModel>, IPanelViewModel
         _workspaceController.OpenPage(WorkspaceId, Optional<PageData>.None, new OpenPageBehavior.NewTab(Id));
     }
 
-    public void AddCustomTab(PageData pageData)
+    public void AddCustomTab(PageData pageData, bool selectTab = true)
     {
         Page newTabPage;
 
@@ -204,17 +204,21 @@ public class PanelViewModel : AViewModel<IPanelViewModel>, IPanelViewModel
         var tab = new PanelTabViewModel(_workspaceController, WorkspaceId, Id)
         {
             Contents = newTabPage,
+            // A new tab starts out shown and selected, and a selected header is what moves
+            // the panel onto its tab, so one opened in the background has to say otherwise.
+            IsVisible = selectTab,
             Header =
             {
                 Icon = newTabPage.ViewModel.TabIcon,
                 Title = newTabPage.ViewModel.TabTitle,
+                IsSelected = selectTab,
             },
         };
 
         newTabPage.ViewModel.TabId = tab.Id;
 
         _tabsList.Edit(updater => updater.Add(tab));
-        SelectedTabId = tab.Id;
+        if (selectTab) SelectedTabId = tab.Id;
     }
 
     public void SelectTab(PanelTabId tabId)

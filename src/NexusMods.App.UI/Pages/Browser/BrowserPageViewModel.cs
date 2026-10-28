@@ -39,6 +39,8 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
     public ReactiveCommand<Unit, Unit> CommandReload { get; }
 
     public RequestHandler BrowserRequestHandler { get; }
+    public LifeSpanHandler BrowserLifeSpanHandler { get; }
+    public ContextMenuHandler BrowserContextMenuHandler { get; }
 
     public BrowserPageViewModel(
         ILogger<BrowserPageViewModel> logger,
@@ -52,9 +54,11 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
         _loginManager = serviceProvider.GetRequiredService<ILoginManager>();
         _downloadTracker = serviceProvider.GetRequiredService<BrowserDownloadTracker>();
 
-        // One handler per tab: CefGlue disposes it along with the browser it is attached
-        // to, so it can't be shared. The rules behind it are a shared singleton.
-        BrowserRequestHandler = new AdBlockRequestHandler(serviceProvider.GetRequiredService<AdBlocker>(), logger);
+        // One of each handler per tab: CefGlue disposes them along with the browser they are
+        // attached to, so they can't be shared. The ad rules behind them are a shared singleton.
+        BrowserRequestHandler = new InAppBrowserRequestHandler(serviceProvider.GetRequiredService<AdBlocker>(), logger, OpenLinkInNewTab);
+        BrowserLifeSpanHandler = new NewTabLifeSpanHandler(logger, OpenLinkInNewTab);
+        BrowserContextMenuHandler = new NewTabContextMenuHandler(logger, OpenLinkInNewTab);
 
         TabTitle = "Mod page";
         TabIcon = IconValues.Nexus;
@@ -70,15 +74,19 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
         CommandGoForward = ReactiveCommand.Create(() => { }, this.WhenAnyValue(vm => vm.CanGoForward));
         CommandReload = ReactiveCommand.Create(() => { });
 
+        // Not tied to activation: the tab header takes its title as soon as the tab is created,
+        // and a tab opened in the background would otherwise read "Mod page" until it is shown.
+        this.WhenAnyValue(vm => vm.Context)
+            .Subscribe(context =>
+            {
+                if (context?.InitialTitle is not null) TabTitle = context.InitialTitle;
+            });
+
         this.WhenActivated(disposables =>
         {
             this.WhenAnyValue(vm => vm.Context)
                 .Where(context => context is not null)
-                .Subscribe(context =>
-                {
-                    Address = context!.Uri.ToString();
-                    if (context.InitialTitle is not null) TabTitle = context.InitialTitle;
-                })
+                .Subscribe(context => Address = context!.Uri.ToString())
                 .DisposeWith(disposables);
 
             // Keep the tab header in step with the page.
@@ -190,6 +198,60 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
         if (Context?.CloseAfterDownload == true) CloseTab();
 
         return true;
+    }
+
+    /// <summary>
+    /// Opens a link the page wanted somewhere other than this tab in a tab of its own, next
+    /// to this one in the same panel.
+    /// </summary>
+    /// <remarks>
+    /// Always behind this tab, whatever kind of click it was: the user is still reading this
+    /// page, and goes to the new one when they are ready.
+    /// </remarks>
+    private void OpenLinkInNewTab(string url, bool userGesture)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            try
+            {
+                if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return;
+
+                // A download link is the app's to take, wherever the page wanted it opened.
+                if (TryHandleAppUri(url)) return;
+
+                if (!uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) &&
+                    !uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogInformation("Not opening `{Url}` in a new tab, the in-app browser only shows web pages", url);
+                    return;
+                }
+
+                // A page opening tabs nobody clicked for is almost always a pop-under ad.
+                if (!userGesture)
+                {
+                    _logger.LogInformation("Blocked a new tab the page opened on its own: {Url}", url);
+                    return;
+                }
+
+                var pageData = new PageData
+                {
+                    FactoryId = BrowserPageFactory.StaticId,
+                    Context = new BrowserPageContext
+                    {
+                        Uri = uri,
+                        // Until the page reports its own.
+                        InitialTitle = uri.Host + uri.AbsolutePath.TrimEnd('/'),
+                    },
+                };
+
+                var workspaceController = GetWorkspaceController();
+                workspaceController.OpenPage(WorkspaceId, pageData, new OpenPageBehavior.NewTab(PanelId), selectTab: false);
+            }
+            catch (Exception e)
+            {
+                _logger.LogWarning(e, "Unable to open `{Url}` in a new tab", url);
+            }
+        });
     }
 
     /// <inheritdoc/>
