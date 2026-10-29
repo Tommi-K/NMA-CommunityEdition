@@ -1,6 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
 using NexusMods.Abstractions.Games;
-using NexusMods.Abstractions.Loadouts;
 using NexusMods.Backend;
 using NexusMods.Games.TestFramework;
 using NexusMods.StandardGameLocators.TestHelpers;
@@ -14,7 +13,6 @@ public static class DIHelpers
     {
         services.AddDefaultServicesForTesting()
             .AddGameServices()
-            .AddLoadoutAbstractions()
             .AddGames()
             .AddGame<StubbedGame>()
             .AddUniversalGameLocator<StubbedGame>(Version.Parse("0.0.0"));

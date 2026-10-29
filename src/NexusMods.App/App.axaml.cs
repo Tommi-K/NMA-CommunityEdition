@@ -54,6 +54,7 @@ public class App : Application
         Locator.CurrentMutable.UseMicrosoftExtensionsLoggingWithWrappingFullLogger(loggerFactory);
 
         MenuFlyoutCloser.Register();
+        MiddleClickScroll.Register();
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {

@@ -175,6 +175,11 @@ public class Startup
                 new KeyValuePair<string, string>("disable-background-timer-throttling", string.Empty),
                 new KeyValuePair<string, string>("disable-renderer-backgrounding", string.Empty),
                 new KeyValuePair<string, string>("disable-backgrounding-occluded-windows", string.Empty),
+
+                // Middle-click scrolling, as the rest of the app does it (MiddleClickScroll).
+                // Chromium has it built in, but leaves it off on Linux, where the middle
+                // button traditionally pastes.
+                new KeyValuePair<string, string>("enable-blink-features", "MiddleClickAutoscroll"),
             };
 
             CefRuntimeLoader.Initialize(flags: flags, settings: new CefSettings

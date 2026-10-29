@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NexusMods.Abstractions.Games.FileHashes;
 using NexusMods.Abstractions.Games.FileHashes.Models;
+using NexusMods.Abstractions.Loadouts;
 using NexusMods.Abstractions.Serialization;
 using NexusMods.Backend;
 using NexusMods.Collections;
@@ -40,6 +41,7 @@ public static class DependencyInjectionHelper
     ///     <item><see cref="TemporaryFileManager"/> singleton</item>
     ///     <item><see cref="HttpClient"/> singleton</item>
     ///     <item>Nexus Web API via <see cref="Networking.NexusWebApi.Services.AddNexusWebApi"/></item>
+    ///     <item>The loadout models via <see cref="Abstractions.Loadouts.Services.AddLoadoutAbstractions"/>, which the Nexus Web API's requirement stand-ins watch from startup</item>
     ///     <item>All services related to the <see cref="NexusMods.DataModel"/> via <see cref="DataModel.Services.AddDataModel"/></item>
     ///     <item>File extraction services via <see cref="NexusMods.FileExtractor.Services.AddFileExtractors"/></item>
     /// </list>
@@ -61,6 +63,7 @@ public static class DependencyInjectionHelper
             .AddSingleton<ICoreDelegates, MockDelegates>()
             .AddSingleton<TemporaryFileManager>(_ => new TemporaryFileManager(FileSystem.Shared, prefix))
             .AddNexusWebApi(true)
+            .AddLoadoutAbstractions()
             .AddNexusModsCollections()
             .AddOSInterop()
             .AddRuntimeDependencies()

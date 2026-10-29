@@ -15,7 +15,9 @@
         <workspace:PanelTabHeaderDesignViewModel />
     </Design.DataContext>
 
-    <Border x:Name="Container" HorizontalAlignment="Left">
+    <!-- a middle click closes the tab, so it doesn't scroll the tab strip -->
+    <Border x:Name="Container" HorizontalAlignment="Left"
+            controls:MiddleClickScroll.IsEnabled="False">
 
         <DockPanel MinWidth="100" MaxWidth="260"
                    Height="36"

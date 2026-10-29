@@ -42,7 +42,6 @@ public static class Startup
             .AddDefaultServicesForTesting()
             .AddUniversalGameLocator<Cyberpunk2077Game>(new Version("1.61"))
             .AddRedEngineGames()
-            .AddLoadoutAbstractions()
             .Validate();
     }
 }
