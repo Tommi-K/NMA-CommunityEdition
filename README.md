@@ -24,11 +24,13 @@ Nexus Mods [paused the Nexus Mods App](https://help.nexusmods.com/article/164-di
 - **Epic games installed with Heroic** are detected and launched through Heroic, native and Flatpak.
 - **Game versions newer than the Nexus file database** (for example Cyberpunk 2077 2.5) are handled safely. NMA takes the game folder as it first indexed it as the original game files, so "Clean folder" no longer deletes the game.
 - **Fallout 4 end to end**, F4SE included, on Steam through Proton.
+- **Files in the Wine prefix**: for a game run with Proton, Heroic or Lutris, NMA puts what the game reads from AppData and Documents in the game's Wine prefix, where the game looks for it: the plugins.txt of Skyrim, Fallout 4 and New Vegas, the mods of Baldur's Gate 3. Games you add manually aren't covered: the app can't tell which prefix they run in.
 - **The Play button follows the running game** on Linux, through launcher-to-game hand-offs.
 - **No telemetry.** No diagnostic or usage data is sent to Nexus Mods. The app identifies itself as NMA Community Edition to the Nexus Mods API.
 - **A missing game no longer breaks the app.** If a managed game is uninstalled or moved, its loadouts are hidden until the game is found again.
 - **Many fixes to mod files and downloads**: files shared by two mods, deleted files that came back, downloads stuck "in progress", leftover temporary archives.
 - **Kept up to date**: ships .NET 10 and the latest runtime patch, keeps its dependencies free of known vulnerabilities, and tells you when a new release is out.
+- **Install missing requirements**: a button on the loadout page downloads and installs what the selected mods' Nexus Mods pages list as requirements and the loadout lacks.
 - **Reorderable tabs**: drag a tab header sideways to move it.
 - **Add games manually** when the store locators can't find an install.
 - **Much smaller disk footprint** for games the hashes database has no manifest for: the app records a baseline of the install instead of archiving the whole game folder.
