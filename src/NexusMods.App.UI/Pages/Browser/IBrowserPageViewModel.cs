@@ -80,14 +80,21 @@ public interface IBrowserPageViewModel : IPageViewModelInterface
     public ContextMenuHandler BrowserContextMenuHandler { get; }
 
     /// <summary>
-    /// The script to run once <paramref name="pageUrl"/> has finished loading, or null when
-    /// there is nothing to do for it.
+    /// The script to run on <paramref name="pageUrl"/>, or null when there is nothing to do
+    /// for it. Asked for when the page starts loading and again when it has finished.
     /// </summary>
     /// <remarks>
     /// Returns a script only for a tab that was opened to start a download, and only on the
     /// Nexus Mods page that actually carries a download button.
     /// </remarks>
     public string? TryGetPageLoadScript(string pageUrl);
+
+    /// <summary>
+    /// Ends the wait for this tab's download because the page for file
+    /// <paramref name="fileId"/> has none to give, as the script or the page's own status
+    /// said. Ignored when the tab has moved on to another file since.
+    /// </summary>
+    public void ReportNothingToDownload(string fileId, string reason);
 
     /// <summary>
     /// Handles a URL the embedded browser can't navigate to itself, such as an

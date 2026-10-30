@@ -131,12 +131,12 @@ public partial class BrowserPageView : ReactiveUserControl<IBrowserPageViewModel
         });
     }
 
-    private void OnLoadStart(object sender, LoadStartEventArgs e) => InjectMouseHistoryScript(e.Frame);
-
     /// <summary>
-    /// A tab opened to start a download gets it going itself once the page is there.
+    /// A tab opened to start a download gets it going itself as soon as the page starts to
+    /// arrive: the link the script is after is in the page's own markup, there to be read
+    /// long before the images and scripts that follow have finished loading.
     /// </summary>
-    private void OnLoadEnd(object sender, LoadEndEventArgs e)
+    private void OnLoadStart(object sender, LoadStartEventArgs e)
     {
         InjectMouseHistoryScript(e.Frame);
 
@@ -148,6 +148,36 @@ public partial class BrowserPageView : ReactiveUserControl<IBrowserPageViewModel
         var url = e.Frame.Url;
 
         PostToUi(() => StartDownloadWhenReady(url));
+    }
+
+    /// <summary>
+    /// Puts the download script on the page again once it has loaded, in case the document
+    /// it went into at the start was replaced; the script only ever runs once per document.
+    /// A page that came back as missing ends the wait for its download there and then.
+    /// </summary>
+    private void OnLoadEnd(object sender, LoadEndEventArgs e)
+    {
+        InjectMouseHistoryScript(e.Frame);
+
+        if (!e.Frame.IsMain) return;
+
+        var url = e.Frame.Url;
+        var statusCode = e.HttpStatusCode;
+
+        PostToUi(() =>
+        {
+            // Only the statuses that mean the file is gone: a Cloudflare check answers 403 and
+            // then loads the real page by itself.
+            if (statusCode is 404 or 410 &&
+                Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
+                BrowserPageViewModel.GetFileId(uri) is { } fileId)
+            {
+                ViewModel?.ReportNothingToDownload(fileId, $"the page answered {statusCode}");
+                return;
+            }
+
+            StartDownloadWhenReady(url);
+        });
     }
 
     /// <summary>
@@ -177,8 +207,8 @@ public partial class BrowserPageView : ReactiveUserControl<IBrowserPageViewModel
     /// <remarks>
     /// The work happens in the injected script, which reports the page's own
     /// <c>nxm://</c> handoff link back over the console for
-    /// <see cref="OnConsoleMessage"/> to act on, and presses the download button if the
-    /// page doesn't state one.
+    /// <see cref="OnConsoleMessage"/> to act on, and presses the download button once the
+    /// page has loaded if it doesn't state one.
     /// </remarks>
     private void StartDownloadWhenReady(string pageUrl)
     {
@@ -227,11 +257,20 @@ public partial class BrowserPageView : ReactiveUserControl<IBrowserPageViewModel
     }
 
     /// <summary>
-    /// Acts on the handoff link the injected script found, if this message is one.
+    /// Acts on the handoff link the injected script found, or on it giving up, if this
+    /// message is one of those.
     /// </summary>
     private void TryHandOffReportedLink(string message)
     {
         var body = message[AutoDownloadScript.LogPrefix.Length..];
+
+        if (body.StartsWith(AutoDownloadScript.GaveUpPrefix, StringComparison.Ordinal))
+        {
+            var fileId = body[AutoDownloadScript.GaveUpPrefix.Length..].Trim();
+            ViewModel?.ReportNothingToDownload(fileId, "the script found nothing to download on it");
+            return;
+        }
+
         if (!body.StartsWith(AutoDownloadScript.HandoffPrefix, StringComparison.Ordinal)) return;
 
         var link = body[AutoDownloadScript.HandoffPrefix.Length..].Trim();

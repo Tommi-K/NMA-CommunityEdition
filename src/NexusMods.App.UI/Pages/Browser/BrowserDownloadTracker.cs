@@ -25,6 +25,42 @@ internal interface IBrowserDownloadDriver
     /// Closes the tab.
     /// </summary>
     void CloseDriverTab();
+
+    /// <summary>
+    /// Shows the tab again, switching to its workspace if need be.
+    /// </summary>
+    /// <remarks>
+    /// Chromium only loads pages in a tab that is on screen, so a run whose tab the user has
+    /// moved away from stops getting anywhere until it is shown again.
+    /// </remarks>
+    void BringToFront();
+}
+
+/// <summary>
+/// How waiting for a download page to hand its download over ended.
+/// </summary>
+internal enum HandoffResult
+{
+    /// <summary>
+    /// The page handed its download to the app.
+    /// </summary>
+    HandedOff,
+
+    /// <summary>
+    /// The page loaded, but has no download to give: the script looked for one until its
+    /// deadline, or the page itself came back as missing.
+    /// </summary>
+    NothingToDownload,
+
+    /// <summary>
+    /// The page never got far enough for the script to be put on it.
+    /// </summary>
+    NeverArmed,
+
+    /// <summary>
+    /// The script was put on the page, but nothing came of it in time.
+    /// </summary>
+    TimedOut,
 }
 
 /// <summary>
@@ -40,7 +76,7 @@ internal interface IBrowserDownloadDriver
 [UsedImplicitly(ImplicitUseKindFlags.InstantiatedNoFixedConstructorSignature)]
 internal sealed class BrowserDownloadTracker
 {
-    private readonly ConcurrentDictionary<Guid, TaskCompletionSource<bool>> _pending = new();
+    private readonly ConcurrentDictionary<Guid, PendingDownload> _pending = new();
 
     /// <summary>
     /// The tab the current run of downloads is being driven through, if one is open.
@@ -48,15 +84,25 @@ internal sealed class BrowserDownloadTracker
     private volatile IBrowserDownloadDriver? _driver;
 
     /// <summary>
+    /// A download being waited on: whether its page has been armed yet, and how it ended.
+    /// </summary>
+    /// <remarks>
+    /// Asynchronous continuations: both are set from the UI thread, and the waiter must not be
+    /// resumed on it.
+    /// </remarks>
+    private sealed class PendingDownload
+    {
+        public readonly TaskCompletionSource Armed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public readonly TaskCompletionSource<HandoffResult> Result = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    /// <summary>
     /// Starts tracking a download about to be opened, returning the id to send out with it.
     /// </summary>
     public Guid Add()
     {
         var requestId = Guid.NewGuid();
-
-        // Asynchronous continuations: the result is set from the UI thread, and the waiter
-        // must not be resumed on it.
-        _pending[requestId] = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pending[requestId] = new PendingDownload();
         return requestId;
     }
 
@@ -68,19 +114,42 @@ internal sealed class BrowserDownloadTracker
     /// <summary>
     /// Waits for the tab to hand its download to the app.
     /// </summary>
-    /// <returns>False when <paramref name="timeout"/> ran out first.</returns>
-    public async Task<bool> WaitForHandoff(Guid requestId, TimeSpan timeout, CancellationToken cancellationToken)
+    /// <param name="requestId">The download.</param>
+    /// <param name="armingTimeout">
+    /// How long the page has to get far enough to be armed. A page that hasn't by then is
+    /// stuck, and waiting the full <paramref name="handoffTimeout"/> on it gains nothing.
+    /// </param>
+    /// <param name="handoffTimeout">How long the armed page has to hand its download over.</param>
+    /// <param name="cancellationToken">Gives up waiting.</param>
+    public async Task<HandoffResult> WaitForHandoff(Guid requestId, TimeSpan armingTimeout, TimeSpan handoffTimeout, CancellationToken cancellationToken)
     {
-        if (!_pending.TryGetValue(requestId, out var pending)) return false;
+        if (!_pending.TryGetValue(requestId, out var pending)) return HandoffResult.NeverArmed;
 
         try
         {
-            return await pending.Task.WaitAsync(timeout, cancellationToken);
+            await Task.WhenAny(pending.Armed.Task, pending.Result.Task).WaitAsync(armingTimeout, cancellationToken);
         }
         catch (TimeoutException)
         {
-            return false;
+            return HandoffResult.NeverArmed;
         }
+
+        try
+        {
+            return await pending.Result.Task.WaitAsync(handoffTimeout, cancellationToken);
+        }
+        catch (TimeoutException)
+        {
+            return HandoffResult.TimedOut;
+        }
+    }
+
+    /// <summary>
+    /// Reports that the script has been put on the page loading for <paramref name="requestId"/>.
+    /// </summary>
+    public void ReportArmed(Guid requestId)
+    {
+        if (_pending.TryGetValue(requestId, out var pending)) pending.Armed.TrySetResult();
     }
 
     /// <summary>
@@ -90,7 +159,16 @@ internal sealed class BrowserDownloadTracker
     /// </summary>
     public void ReportHandoff(Guid requestId)
     {
-        if (_pending.TryGetValue(requestId, out var pending)) pending.TrySetResult(true);
+        if (_pending.TryGetValue(requestId, out var pending)) pending.Result.TrySetResult(HandoffResult.HandedOff);
+    }
+
+    /// <summary>
+    /// Reports that the page loaded for <paramref name="requestId"/> has no download to hand
+    /// over, so the wait can end now.
+    /// </summary>
+    public void ReportNothingToDownload(Guid requestId)
+    {
+        if (_pending.TryGetValue(requestId, out var pending)) pending.Result.TrySetResult(HandoffResult.NothingToDownload);
     }
 
     /// <summary>

@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using NexusMods.Sdk.EventBus;
 using NexusMods.Abstractions.GOG;
 using NexusMods.Abstractions.Library;
+using NexusMods.Abstractions.Library.Jobs;
 using NexusMods.Abstractions.Loadouts;
 using NexusMods.Abstractions.NexusModsLibrary;
 using NexusMods.Abstractions.NexusModsLibrary.Models;
@@ -17,6 +18,7 @@ using NexusMods.Networking.NexusWebApi;
 using NexusMods.Networking.NexusWebApi.Auth;
 using NexusMods.Paths;
 using NexusMods.Sdk;
+using NexusMods.Sdk.Jobs;
 using NexusMods.Sdk.Library;
 using NexusMods.Sdk.Games;
 using NexusMods.Sdk.Loadouts;
@@ -265,6 +267,16 @@ public class NxmIpcProtocolHandler : IIpcProtocolHandler
             }
         }
 
+        // Not in the library yet doesn't mean not on its way: a download of this very file can be
+        // queued or under way from an earlier pass over the same collection, and a second one
+        // would only take a share of the same capped speed. Held until this download is over.
+        using var claim = nexusModsLibrary.TryClaimDownload(nexusModsLibrary.GetFileUid(modUrl));
+        if (claim is null)
+        {
+            _logger.LogInformation("File `{Game}/{ModId}/{FileId}` is already being downloaded and will be skipped", modUrl.Game, modUrl.ModId, modUrl.FileId);
+            return;
+        }
+
         var library = _serviceProvider.GetRequiredService<ILibraryService>();
         var temporaryFileManager = _serviceProvider.GetRequiredService<TemporaryFileManager>();
 
@@ -274,15 +286,35 @@ public class NxmIpcProtocolHandler : IIpcProtocolHandler
         try
         {
             await using var destination = temporaryFileManager.CreateFile();
-            var downloadJob = await nexusModsLibrary.CreateDownloadJob(destination, modUrl, cancellationToken: cancel);
 
-            libraryFile = await library.AddDownload(downloadJob);
-            
+            // Without premium, downloads take turns, and this one can be some way down the queue:
+            // its download link, which only lasts four hours, is asked for once its turn comes.
+            IJobTask<IAddDownloadJob, LibraryFile.ReadOnly> adding;
+            using (await nexusModsLibrary.WaitForDownloadTurn(cancel))
+            {
+                var downloadJob = await nexusModsLibrary.CreateDownloadJob(destination, modUrl, cancellationToken: cancel);
+                adding = library.AddDownload(downloadJob);
+
+                // The turn only covers the transfer: adding the file to the library is no part of
+                // what the cap limits. A failed transfer fails the add too, and is reported there.
+                try
+                {
+                    await downloadJob;
+                }
+                catch (Exception)
+                {
+                    // reported by the add
+                }
+            }
+
+            libraryFile = await adding;
+
             _eventBus.Send(new CliMessages.ModDownloadSucceeded(libraryFile.Value.AsLibraryItem(), source));
         }
-        catch (TaskCanceledException)
+        catch (OperationCanceledException)
         {
-            // User-initiated cancellation should not be treated as an error
+            // User-initiated cancellation should not be treated as an error. That includes a
+            // download dropped while it was still waiting for its turn.
             _logger.LogInformation("Mod download cancelled by user for {Game}/{ModId}/{FileId}", modUrl.Game, modUrl.ModId, modUrl.FileId);
             // Don't rethrow TaskCanceledException for user-initiated cancellations
             // Don't send ModDownloadFailed event for user-initiated cancellations

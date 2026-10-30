@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using DynamicData.Kernel;
 using JetBrains.Annotations;
@@ -52,6 +53,131 @@ public partial class NexusModsLibrary
         _jsonSerializerOptions = serviceProvider.GetRequiredService<JsonSerializerOptions>();
         _mappingCache = serviceProvider.GetRequiredService<IGameDomainToGameIdMappingCache>();
         _graphQlClient = serviceProvider.GetRequiredService<IGraphQlClient>();
+    }
+
+    /// <summary>
+    /// Whether the account is premium, read from the user info the login manager already
+    /// holds, so it costs no request of its own. Nobody being logged in counts as not premium.
+    /// </summary>
+    private static bool IsPremium(IServiceProvider serviceProvider)
+    {
+        return serviceProvider.GetService<ILoginManager>()?.IsPremium == true;
+    }
+
+    /// <summary>
+    /// Whether downloads go straight to fetching the file, without asking the server about it
+    /// first: everyone's but a premium account's do, which saves a round trip per file.
+    /// </summary>
+    internal static bool SkipsMetadataRequest(IServiceProvider serviceProvider) => !IsPremium(serviceProvider);
+
+    /// <summary>
+    /// How many downloads an account without premium has going at once.
+    /// </summary>
+    /// <remarks>
+    /// Nexus Mods caps such an account's downloads as a whole rather than one by one, so every
+    /// download running at the same time takes a share of the same few MB/s. A collection's
+    /// download pages hand over dozens a minute, and with all of them running at once each one
+    /// crawled along at a fraction of the cap, the slowest went quiet for long enough to be
+    /// taken for stalled, and a large one could outlast the four hours its link is good for.
+    /// A few at a time keep the cap just as full, and get each file in far sooner.
+    /// </remarks>
+    private const int MaxConcurrentDownloadsWithoutPremium = 4;
+
+    private readonly SemaphoreSlim _downloadTurns = new(MaxConcurrentDownloadsWithoutPremium);
+
+    /// <summary>
+    /// Cancelled, and replaced, to drop every download still waiting for its turn.
+    /// </summary>
+    private CancellationTokenSource _waitingDownloads = new();
+
+    /// <summary>
+    /// Waits until a download may start, returning what to dispose of once its file has been
+    /// transferred.
+    /// </summary>
+    /// <remarks>
+    /// Only accounts without premium wait; see <see cref="MaxConcurrentDownloadsWithoutPremium"/>.
+    /// Wait before asking for the file's download link: the link lasts four hours, while the
+    /// key a download page hands over lasts two days.
+    /// </remarks>
+    /// <exception cref="OperationCanceledException">
+    /// <paramref name="cancellationToken"/> was cancelled, or <see cref="DropWaitingDownloads"/> called, before the turn came.
+    /// </exception>
+    public async ValueTask<IDisposable> WaitForDownloadTurn(CancellationToken cancellationToken)
+    {
+        if (IsPremium(_serviceProvider)) return new DownloadTurn(turns: null);
+
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, Volatile.Read(ref _waitingDownloads).Token);
+        await _downloadTurns.WaitAsync(cancellation.Token);
+        return new DownloadTurn(_downloadTurns);
+    }
+
+    /// <summary>
+    /// Drops every download that is waiting for its turn, leaving the ones under way alone.
+    /// </summary>
+    /// <remarks>
+    /// A waiting download isn't a job yet, so nothing on the downloads page can stop it; this
+    /// is what cancelling a run of downloads, such as a collection's, does with them instead.
+    /// </remarks>
+    public void DropWaitingDownloads()
+    {
+        // Not disposed: a waiter may be reading its token at this very moment.
+        Interlocked.Exchange(ref _waitingDownloads, new CancellationTokenSource()).Cancel();
+    }
+
+    /// <summary>
+    /// A download's place among the ones running, given back once.
+    /// </summary>
+    private sealed class DownloadTurn(SemaphoreSlim? turns) : IDisposable
+    {
+        private int _isReleased;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _isReleased, 1) == 0) turns?.Release();
+        }
+    }
+
+    /// <summary>
+    /// Files with a download queued or under way that has been handed over by a download page.
+    /// </summary>
+    private readonly ConcurrentDictionary<FileUid, byte> _filesBeingDownloaded = new();
+
+    /// <summary>
+    /// The file an <c>nxm://</c> link is for.
+    /// </summary>
+    public FileUid GetFileUid(NXMModUrl url) => new(url.FileId, _mappingCache[GameDomain.From(url.Game)]);
+
+    /// <summary>
+    /// Whether a download of <paramref name="file"/> is queued or under way.
+    /// </summary>
+    /// <remarks>
+    /// A file only counts as downloaded once it is in the library, and without premium that can
+    /// be a long while after its download page handed it over. Going over the same collection
+    /// again meanwhile -- pressing Download a second time, say -- would otherwise start every one
+    /// of those files a second time, each copy taking a share of the same capped speed.
+    /// </remarks>
+    public bool IsBeingDownloaded(FileUid file) => _filesBeingDownloaded.ContainsKey(file);
+
+    /// <summary>
+    /// Marks <paramref name="file"/> as being downloaded, unless it already is.
+    /// </summary>
+    /// <returns>
+    /// Null when a download of it is already queued or under way; otherwise what to dispose of
+    /// once this download is over, however it ends.
+    /// </returns>
+    public IDisposable? TryClaimDownload(FileUid file)
+    {
+        return _filesBeingDownloaded.TryAdd(file, 0) ? new DownloadClaim(_filesBeingDownloaded, file) : null;
+    }
+
+    private sealed class DownloadClaim(ConcurrentDictionary<FileUid, byte> files, FileUid file) : IDisposable
+    {
+        private int _isReleased;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _isReleased, 1) == 0) files.TryRemove(file, out _);
+        }
     }
 
     public async Task<NexusModsModPageMetadata.ReadOnly> GetOrAddModPage(
@@ -230,7 +356,7 @@ public partial class NexusModsLibrary
         var uri = await GetDownloadUri(file, nxmData, cancellationToken: cancellationToken);
 
         var domain = _mappingCache[nexusModsGameId];
-        var httpJob = HttpDownloadJob.Create(_serviceProvider, uri, NexusModsUrlBuilder.GetModUri(domain, modId), destination);
+        var httpJob = HttpDownloadJob.Create(_serviceProvider, uri, NexusModsUrlBuilder.GetModUri(domain, modId), destination, skipMetadataRequest: SkipsMetadataRequest(_serviceProvider));
         var nexusJob = NexusModsDownloadJob.Create(_serviceProvider, httpJob, file);
 
         return nexusJob;
@@ -245,7 +371,7 @@ public partial class NexusModsLibrary
         var uri = await GetDownloadUri(fileMetadata, Optional<(NXMKey, DateTime)>.None, cancellationToken: cancellationToken);
 
         var domain = _mappingCache[fileMetadata.Uid.GameId];
-        var httpJob = HttpDownloadJob.Create(_serviceProvider, uri, NexusModsUrlBuilder.GetModUri(domain, fileMetadata.ModPage.Uid.ModId), destination);
+        var httpJob = HttpDownloadJob.Create(_serviceProvider, uri, NexusModsUrlBuilder.GetModUri(domain, fileMetadata.ModPage.Uid.ModId), destination, skipMetadataRequest: SkipsMetadataRequest(_serviceProvider));
         var nexusJob = NexusModsDownloadJob.Create(_serviceProvider, httpJob, fileMetadata, parentRevision: parentRevision);
 
         return nexusJob;

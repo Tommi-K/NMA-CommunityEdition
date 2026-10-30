@@ -3,6 +3,7 @@ using System.IO.Hashing;
 using System.Security.Cryptography;
 using DynamicData.Kernel;
 using Microsoft.Extensions.DependencyInjection;
+using NexusMods.Abstractions.Downloads;
 using NexusMods.Hashing.xxHash3;
 using NexusMods.MnemonicDB.Abstractions;
 using NexusMods.Paths;
@@ -20,6 +21,11 @@ internal class AddLibraryFileJob : IJobDefinitionWithStart<AddLibraryFileJob, Li
 {
     public required ITransaction Transaction { get; init; }
     public required AbsolutePath FilePath { get; init; }
+
+    /// <summary>
+    /// Hashes of <see cref="FilePath"/> already worked out while it was being downloaded.
+    /// </summary>
+    public DownloadedFileHashes? KnownHashes { get; init; }
     private ConcurrentBag<TemporaryPath> ExtractionDirectories { get; } = [];
     private ConcurrentBag<ArchivedFileEntry> ToArchive { get; } = [];
 
@@ -30,13 +36,14 @@ internal class AddLibraryFileJob : IJobDefinitionWithStart<AddLibraryFileJob, Li
         new(".dat"),
     ];
 
-    public static IJobTask<AddLibraryFileJob, LibraryFile.New> Create(IServiceProvider provider, ITransaction transaction, AbsolutePath filePath)
+    public static IJobTask<AddLibraryFileJob, LibraryFile.New> Create(IServiceProvider provider, ITransaction transaction, AbsolutePath filePath, DownloadedFileHashes? knownHashes = null)
     {
         var monitor = provider.GetRequiredService<IJobMonitor>();
         var job = new AddLibraryFileJob
         {
             Transaction = transaction,
             FilePath = filePath,
+            KnownHashes = knownHashes,
             FileExtractor = provider.GetRequiredService<IFileExtractor>(),
             Connection = provider.GetRequiredService<IConnection>(),
             TemporaryFileManager = provider.GetRequiredService<TemporaryFileManager>(),
@@ -82,7 +89,10 @@ internal class AddLibraryFileJob : IJobDefinitionWithStart<AddLibraryFileJob, Li
     {
         var isArchive = isNestedFile ? await CheckIfNestedArchiveAsync(filePath) : await CheckIfArchiveAsync(filePath);
 
-        var (hash, md5) = await HashAsync(filePath, isNestedFile: isNestedFile, cancellationToken: context.CancellationToken);
+        var (hash, md5) = !isNestedFile && TryGetKnownHashes(filePath, out var knownHashes)
+            ? (knownHashes.Hash, Optional.Some(knownHashes.Md5))
+            : await HashAsync(filePath, isNestedFile: isNestedFile, cancellationToken: context.CancellationToken);
+
         var libraryFile = CreateLibraryFile(Transaction, filePath, hash, md5);
 
         if (isArchive)
@@ -120,6 +130,16 @@ internal class AddLibraryFileJob : IJobDefinitionWithStart<AddLibraryFileJob, Li
         }
 
         return libraryFile;
+    }
+
+    /// <summary>
+    /// The hashes the download worked out for <paramref name="filePath"/>, when it did and
+    /// they cover the whole of the file as it is on disk.
+    /// </summary>
+    private bool TryGetKnownHashes(AbsolutePath filePath, out DownloadedFileHashes hashes)
+    {
+        hashes = KnownHashes.GetValueOrDefault();
+        return KnownHashes.HasValue && filePath == FilePath && filePath.FileInfo.Size == hashes.Size;
     }
 
     /// <summary>

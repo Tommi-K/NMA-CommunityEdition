@@ -110,20 +110,44 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
         });
     }
 
+    /// <summary>
+    /// The download and page the script was last handed out for, which the view asks for at
+    /// both the start and the end of a load.
+    /// </summary>
+    private (Guid? RequestId, string Url) _lastArmed;
+
     public string? TryGetPageLoadScript(string pageUrl)
     {
         if (Context?.AutoStartDownload != true) return null;
+
+        // A tab whose download is no longer being waited on -- one restored from an earlier
+        // session, or one left behind when a run moved to a fresh tab -- is an ordinary page now.
+        // Shown again, it would otherwise hand its file over a second time.
+        if (Context.DownloadRequestId is { } requestId && !_downloadTracker.IsTracked(requestId)) return null;
+
+        // Only the first ask for a page is logged and reported; the second is the same script
+        // going in again in case the document it first went into was replaced, and the
+        // script itself makes sure it only ever runs once in a document.
+        var armed = (Context.DownloadRequestId, pageUrl);
+        var isRepeat = armed == _lastArmed;
+        _lastArmed = armed;
 
         // Logged either way: if the page moves itself somewhere without a file in the query
         // -- a download widget on its own URL, say -- the script is never armed there, and
         // without this that would look identical to the script running and finding nothing.
         if (!IsNexusFileDownloadPage(pageUrl))
         {
-            _logger.LogInformation("Auto-download not armed, no file in the query: {Url}", pageUrl);
+            if (!isRepeat) _logger.LogInformation("Auto-download not armed, no file in the query: {Url}", pageUrl);
             return null;
         }
 
-        _logger.LogInformation("Auto-download armed on {Url}", pageUrl);
+        // Only for the file the tab is downloading now: the end of the previous page's load can
+        // still be on its way once the tab has been pointed at the next one.
+        if (!isRepeat && Uri.TryCreate(pageUrl, UriKind.Absolute, out var pageUri) && IsCurrentFile(GetFileId(pageUri)))
+        {
+            _logger.LogInformation("Auto-download armed on {Url}", pageUrl);
+            if (Context.DownloadRequestId is { } armedRequestId) _downloadTracker.ReportArmed(armedRequestId);
+        }
 
         // A premium account downloads through the API and never reaches this page, so this
         // is all but always the slow button. Asking anyway keeps the choice correct rather
@@ -149,7 +173,57 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
         if (!host.Equals("nexusmods.com", StringComparison.OrdinalIgnoreCase) &&
             !host.EndsWith(".nexusmods.com", StringComparison.OrdinalIgnoreCase)) return false;
 
-        return uri.Query.Contains("file_id=", StringComparison.OrdinalIgnoreCase);
+        return GetFileId(uri) is not null;
+    }
+
+    /// <summary>
+    /// Ends the wait for this tab's download because the page for file
+    /// <paramref name="fileId"/> has none to give.
+    /// </summary>
+    /// <remarks>
+    /// Ignored unless that is the file the tab is currently downloading: a report can still
+    /// be on its way from a page the tab has since moved on from.
+    /// </remarks>
+    public void ReportNothingToDownload(string fileId, string reason)
+    {
+        if (Context?.DownloadRequestId is not { } requestId) return;
+        if (!string.Equals(GetFileId(Context.Uri), fileId, StringComparison.Ordinal)) return;
+
+        _logger.LogInformation("Auto-download gave up on {Url}: {Reason}", Context.Uri, reason);
+        _downloadTracker.ReportNothingToDownload(requestId);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="fileId"/>, reported by a page, is the file the tab is
+    /// downloading now. Given the benefit of the doubt when either side doesn't say.
+    /// </summary>
+    private bool IsCurrentFile(string? fileId)
+    {
+        var current = Context is null ? null : GetFileId(Context.Uri);
+        return current is null || fileId is null || string.Equals(current, fileId, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The <c>file_id</c> in the query of <paramref name="uri"/>, if it has one.
+    /// </summary>
+    public static string? GetFileId(Uri uri)
+    {
+        foreach (var parameter in uri.Query.TrimStart('?').Split('&'))
+        {
+            if (parameter.StartsWith("file_id=", StringComparison.OrdinalIgnoreCase)) return parameter["file_id=".Length..];
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The file an <c>nxm://</c> link such as <c>nxm://game/mods/1/files/2?key=…</c> is for.
+    /// </summary>
+    private static string? GetHandoffFileId(Uri uri)
+    {
+        var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var files = Array.IndexOf(segments, "files");
+        return files >= 0 && files + 1 < segments.Length ? segments[files + 1] : null;
     }
 
     public bool TryHandleAppUri(string url)
@@ -190,7 +264,15 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
         // A caller that asked for this one download in particular is waiting on it, and the
         // next mod in the collection it is working through doesn't start until this one is
         // away. Reported before the tab closes, since closing is what ends the tab's life.
-        if (Context?.DownloadRequestId is { } downloadRequestId) _downloadTracker.ReportHandoff(downloadRequestId);
+        //
+        // Only for the file that caller asked for. A link from a page the tab has already moved
+        // on from is still downloaded, but counting it would move the run past a file whose own
+        // page never handed anything over.
+        if (Context?.DownloadRequestId is { } downloadRequestId)
+        {
+            if (IsCurrentFile(GetHandoffFileId(uri))) _downloadTracker.ReportHandoff(downloadRequestId);
+            else _logger.LogInformation("`{Url}` isn't the file this tab is downloading, so it doesn't count as its handoff", url);
+        }
 
         // A tab opened by a "Download" button exists only to get the download started, so
         // get it out of the way now that the handoff has been taken. A tab the user opened
@@ -276,6 +358,26 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
 
     /// <inheritdoc/>
     public void CloseDriverTab() => CloseTab();
+
+    /// <inheritdoc/>
+    public void BringToFront()
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            try
+            {
+                var workspaceController = GetWorkspaceController();
+                if (!workspaceController.TryGetWorkspace(WorkspaceId, out var workspace)) return;
+
+                if (workspaceController.ActiveWorkspaceId != WorkspaceId) workspaceController.ChangeActiveWorkspace(WorkspaceId);
+                workspace.Panels.FirstOrDefault(panel => panel.Id == PanelId)?.SelectTab(TabId);
+            }
+            catch (Exception e)
+            {
+                _logger.LogWarning(e, "Unable to bring the download tab to the front");
+            }
+        });
+    }
 
     private void CloseTab()
     {

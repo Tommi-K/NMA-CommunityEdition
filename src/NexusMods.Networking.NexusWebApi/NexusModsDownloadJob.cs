@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using NexusMods.Abstractions.Downloads;
 using NexusMods.Abstractions.HttpDownloads;
 using NexusMods.Abstractions.NexusModsLibrary;
 using NexusMods.MnemonicDB.Abstractions;
@@ -23,6 +24,9 @@ public class NexusModsDownloadJob : INexusModsDownloadJob, IJobDefinitionWithSta
 
     /// <inheritdoc/>
     public AbsolutePath Destination => HttpDownloadJob.JobDefinition.Destination;
+
+    /// <inheritdoc/>
+    public DownloadedFileHashes? KnownHashes => HttpDownloadJob.JobDefinition.KnownHashes;
 
     public static IJobTask<NexusModsDownloadJob, AbsolutePath> Create(
         IServiceProvider provider,

@@ -39,6 +39,16 @@ internal static class AutoDownloadScript
     /// </remarks>
     public const string HandoffPrefix = "handoff ";
 
+    /// <summary>
+    /// Prefix the script uses to report that it has given up on the page, after
+    /// <see cref="LogPrefix"/>, followed by the id of the file the page is for.
+    /// </summary>
+    /// <remarks>
+    /// The file id is what lets the app tell this apart from a late report about a page the
+    /// tab has already moved on from.
+    /// </remarks>
+    public const string GaveUpPrefix = "gave-up ";
+
     private const string PreferFastPlaceholder = "__PREFER_FAST__";
 
     /// <summary>
@@ -60,13 +70,17 @@ internal static class AutoDownloadScript
             var preferFast = __PREFER_FAST__;
             var started = Date.now();
             var deadline = started + 30000;
+            var wanted = (location.search.match(/[?&]file_id=(\d+)/) || [])[1] || null;
 
             var snapshots = [
                 { at: started + 6000, note: '[6s]', done: false },
                 { at: started + 15000, note: '[15s]', done: false }
             ];
 
-            var ticks = 0;
+            var timer = null;
+            var finished = false;
+            var nextIdSearch = 0;
+            var nextLabelSearch = 0;
             var nearMisses = [];
 
             function say(text) {
@@ -141,7 +155,6 @@ internal static class AutoDownloadScript
             // than one download element, and starting the wrong file would be worse than
             // not starting one at all.
             function handoffLink() {
-                var wanted = (location.search.match(/[?&]file_id=(\d+)/) || [])[1] || null;
                 var nodes = document.querySelectorAll('mod-file-download[download-url]');
                 var sole = null;
 
@@ -408,51 +421,74 @@ internal static class AutoDownloadScript
                 emit(note, 'download-text', texts, 5);
             }
 
+            function finish() {
+                finished = true;
+                if (timer !== null) clearInterval(timer);
+            }
+
             // Polled rather than pressed once: the button is commonly disabled behind a
-            // countdown, and waiting for it to become usable is the point.
-            var timer = setInterval(function () {
-                ticks++;
+            // countdown, and waiting for it to become usable is the point. The script goes in
+            // as soon as the page starts loading, so the polling starts while it is still
+            // arriving and the link below is taken the moment it is parsed.
+            function tick() {
+                if (finished) return;
 
                 // Preferred over pressing anything: no countdown to sit through, and
                 // nothing that breaks when the page is redesigned.
                 var link = handoffLink();
                 if (link) {
-                    clearInterval(timer);
+                    finish();
                     say('handoff ' + link);
                     return;
                 }
 
-                var button = findById();
+                var now = Date.now();
 
-                // Walking every root is far heavier than checking a handful of ids, so the
-                // broader searches run about once a second rather than on every tick.
-                if (!button && ticks % 4 === 0) {
-                    nearMisses = [];
-                    button = findByLabel() || findInDownloadComponent();
-                }
+                // Nothing is pressed before the page has finished loading: a control can be in
+                // the markup before the page's scripts have wired it up, and the one press
+                // would be spent on a button that does nothing.
+                if (document.readyState === 'complete' && now >= nextIdSearch) {
+                    nextIdSearch = now + 250;
+                    var button = findById();
 
-                if (button) {
-                    clearInterval(timer);
+                    // Walking every root is far heavier than checking a handful of ids, so
+                    // the broader searches run about once a second.
+                    if (!button && now >= nextLabelSearch) {
+                        nextLabelSearch = now + 1000;
+                        nearMisses = [];
+                        button = findByLabel() || findInDownloadComponent();
+                    }
 
-                    var target = actionable(button);
-                    say('pressing ' + describe(target) +
-                        (target === button ? '' : ' (via label ' + describe(button) + ')'));
-                    target.click();
-                    return;
+                    if (button) {
+                        finish();
+
+                        var target = actionable(button);
+                        say('pressing ' + describe(target) +
+                            (target === button ? '' : ' (via label ' + describe(button) + ')'));
+                        target.click();
+                        return;
+                    }
                 }
 
                 for (var sn = 0; sn < snapshots.length; sn++) {
-                    if (!snapshots[sn].done && Date.now() > snapshots[sn].at) {
+                    if (!snapshots[sn].done && now > snapshots[sn].at) {
                         snapshots[sn].done = true;
                         inventory(snapshots[sn].note);
                     }
                 }
 
-                if (Date.now() > deadline) {
-                    clearInterval(timer);
+                if (now > deadline) {
+                    finish();
                     inventory('[gave up]');
+
+                    // Said outright, so the app moves on now rather than when its own wait
+                    // runs out.
+                    say('gave-up ' + (wanted || ''));
                 }
-            }, 250);
+            }
+
+            tick();
+            if (!finished) timer = setInterval(tick, 50);
         })();
         """;
 }

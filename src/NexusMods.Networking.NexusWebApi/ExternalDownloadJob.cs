@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using DynamicData.Kernel;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -53,6 +52,7 @@ public record ExternalDownloadJob : HttpDownloadJob
             Uri = uri,
             Client = provider.GetRequiredService<HttpClient>(),
             ProxyPool = provider.GetService<ProxyPool>(),
+            SkipMetadataRequest = NexusModsLibrary.SkipsMetadataRequest(provider),
         };
 
         return monitor.Begin<ExternalDownloadJob, AbsolutePath>(job);
@@ -60,16 +60,13 @@ public record ExternalDownloadJob : HttpDownloadJob
 
 
     /// <inheritdoc />
-    public override async ValueTask AddMetadata(ITransaction tx, LibraryFile.New libraryFile)
+    public override ValueTask AddMetadata(ITransaction tx, LibraryFile.New libraryFile)
     {
-        await using (var fileStream = Destination.Read())
-        {
-            var algo = MD5.Create();
-            var hash = await algo.ComputeHashAsync(fileStream);
-            var md5Actual = Md5Value.From(hash);
-            if (md5Actual != ExpectedMd5)
-                throw new InvalidOperationException($"MD5 hash mismatch. Expected: {ExpectedMd5}, Actual: {md5Actual}");
-        }
+        // Adding the file to the library has just worked out its MD5, from the download or
+        // from the file itself, so there is no need to read it all again for this.
+        var md5Actual = libraryFile.Md5;
+        if (md5Actual != ExpectedMd5)
+            throw new InvalidOperationException($"MD5 hash mismatch. Expected: {ExpectedMd5}, Actual: {md5Actual}");
 
         _ = new DirectDownloadLibraryFile.New(tx, libraryFile.Id)
         {
@@ -90,5 +87,7 @@ public record ExternalDownloadJob : HttpDownloadJob
         {
             libraryFile.GetLibraryItem(tx).Name = LogicalFileName;
         }
+
+        return ValueTask.CompletedTask;
     }
 }

@@ -21,4 +21,10 @@ public interface IDownloadJob : IJobDefinition<AbsolutePath>
     /// Adds metadata from the download to the library file
     /// </summary>
     ValueTask AddMetadata(ITransaction transaction, LibraryFile.New libraryFile);
+
+    /// <summary>
+    /// The hashes of the downloaded file, worked out as it was written so that adding it to
+    /// the library doesn't have to read it all back in. Null when they aren't known.
+    /// </summary>
+    DownloadedFileHashes? KnownHashes => null;
 }

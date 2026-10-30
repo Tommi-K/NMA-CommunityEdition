@@ -40,6 +40,9 @@ public class NexusModsCollectionDownloadJob : IJobDefinitionWithStart<NexusModsC
     /// The HTTP download job.
     /// </summary>
     public IJobTask<HttpDownloadJob, AbsolutePath>? DownloadJob { get; set; }
+
+    /// <inheritdoc/>
+    public DownloadedFileHashes? KnownHashes => DownloadJob?.JobDefinition.KnownHashes;
     
     /// <summary>
     /// Nexus Mods API client.
@@ -93,7 +96,7 @@ public class NexusModsCollectionDownloadJob : IJobDefinitionWithStart<NexusModsC
     public async ValueTask<AbsolutePath> StartAsync(IJobContext<NexusModsCollectionDownloadJob> context)
     {
         var downloadLinks = await ApiClient.CollectionDownloadLinksAsync(Slug, Revision, true, context.CancellationToken);
-        DownloadJob = HttpDownloadJob.Create(ServiceProvider, downloadLinks.Data.DownloadLinks.First().Uri, downloadLinks.Data.DownloadLinks.First().Uri, Destination);
+        DownloadJob = HttpDownloadJob.Create(ServiceProvider, downloadLinks.Data.DownloadLinks.First().Uri, downloadLinks.Data.DownloadLinks.First().Uri, Destination, skipMetadataRequest: NexusModsLibrary.SkipsMetadataRequest(ServiceProvider));
         return await DownloadJob;
     }
 }

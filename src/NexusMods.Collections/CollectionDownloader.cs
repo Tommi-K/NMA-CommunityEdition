@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NexusMods.Abstractions.Collections;
 using NexusMods.Abstractions.Library;
+using NexusMods.Abstractions.Library.Jobs;
 using NexusMods.Abstractions.Loadouts;
 using NexusMods.Abstractions.NexusModsLibrary;
 using NexusMods.Abstractions.NexusModsLibrary.Models;
@@ -145,6 +146,20 @@ public class CollectionDownloader
     /// </summary>
     public async ValueTask Download(CollectionDownloadExternal.ReadOnly download, CancellationToken cancellationToken)
     {
+        var adding = await BeginDownload(download, cancellationToken);
+        await adding;
+    }
+
+    /// <summary>
+    /// Starts downloading an external file and returns once it has been transferred.
+    /// </summary>
+    /// <returns>
+    /// What is left to do -- adding the file to the library -- as a task of its own, so that
+    /// a caller working through a list can go on to the next file meanwhile. A failed
+    /// download surfaces there.
+    /// </returns>
+    internal async ValueTask<Task> BeginDownload(CollectionDownloadExternal.ReadOnly download, CancellationToken cancellationToken)
+    {
         var result = await CanDirectDownload(download, cancellationToken);
         if (result.CanDownload)
         {
@@ -165,16 +180,19 @@ public class CollectionDownloader
                 fileName: result.FileName
             );
 
-            await _libraryService.AddDownload(job);
+            var adding = AddToLibrary(_libraryService.AddDownload(job));
+            await WaitForTransfer(job, adding, cancellationToken);
+            return adding;
         }
         else
         {
             _logger.LogInformation("Unable to direct download `{Uri}` (`{Hash}`)", download.Uri, download.Md5);
-            if (download.Rebase(_connection.Db).IsManualOnly) return;
+            if (download.Rebase(_connection.Db).IsManualOnly) return Task.CompletedTask;
 
             using var tx = _connection.BeginTransaction();
             tx.Add(download.Id, CollectionDownloadExternal.ManualOnly, Null.Instance);
             await tx.Commit();
+            return Task.CompletedTask;
         }
     }
 
@@ -188,15 +206,71 @@ public class CollectionDownloader
     /// </returns>
     public async ValueTask<bool> Download(CollectionDownloadNexusMods.ReadOnly download, CancellationToken cancellationToken)
     {
+        var start = await BeginDownload(download, cancellationToken);
+        await start.Adding;
+        return start.Started;
+    }
+
+    /// <summary>
+    /// What <see cref="BeginDownload(CollectionDownloadNexusMods.ReadOnly, CancellationToken)"/> got going.
+    /// </summary>
+    /// <param name="Started">
+    /// False when no download was started: nobody is logged in, or the download page never
+    /// handed one over.
+    /// </param>
+    /// <param name="Adding">
+    /// Adding the downloaded file to the library, still under way; already complete when that
+    /// isn't this caller's to wait for. A failed download surfaces here.
+    /// </param>
+    internal readonly record struct DownloadStart(bool Started, Task Adding)
+    {
+        public static readonly DownloadStart NotStarted = new(Started: false, Task.CompletedTask);
+    }
+
+    /// <summary>
+    /// Starts downloading a file from Nexus Mods and returns once its own part of a run is
+    /// over: with premium, once the file has been transferred; without, once its download
+    /// page has handed the download to the app, which takes it from there.
+    /// </summary>
+    /// <remarks>
+    /// Returning before the file is in the library is what keeps a run's downloads going:
+    /// adding an archive to it means hashing, extracting and compressing it all over again,
+    /// which for a large one takes a while that is better spent downloading the next file.
+    /// </remarks>
+    internal async ValueTask<DownloadStart> BeginDownload(CollectionDownloadNexusMods.ReadOnly download, CancellationToken cancellationToken)
+    {
         var userInfo = await _loginManager.GetUserInfoAsync(cancellationToken);
-        if (userInfo is null) return false;
+        if (userInfo is null) return DownloadStart.NotStarted;
 
         if (userInfo.UserRole is UserRole.Premium)
         {
-            await using var tempPath = _temporaryFileManager.CreateFile();
-            var job = await _nexusModsLibrary.CreateDownloadJob(tempPath, download.FileMetadata, parentRevision: download.AsCollectionDownload().CollectionRevision, cancellationToken: cancellationToken);
-            await _libraryService.AddDownload(job);
-            return true;
+            // Already on its way from an earlier pass over the collection.
+            var claim = _nexusModsLibrary.TryClaimDownload(download.FileUid);
+            if (claim is null) return new DownloadStart(Started: true, Task.CompletedTask);
+
+            var tempPath = _temporaryFileManager.CreateFile();
+            var handedOver = false;
+
+            try
+            {
+                var job = await _nexusModsLibrary.CreateDownloadJob(tempPath, download.FileMetadata, parentRevision: download.AsCollectionDownload().CollectionRevision, cancellationToken: cancellationToken);
+
+                // From here the temporary file and the claim belong to the add, which lets go of
+                // both once done.
+                var adding = AddToLibrary(_libraryService.AddDownload(job), tempPath, claim);
+                handedOver = true;
+
+                await WaitForTransfer(job, adding, cancellationToken);
+                return new DownloadStart(Started: true, adding);
+            }
+            finally
+            {
+                if (!handedOver)
+                {
+                    claim.Dispose();
+                    await tempPath.DisposeAsync();
+                }
+            }
         }
         else
         {
@@ -226,15 +300,76 @@ public class CollectionDownloader
                     _logger.LogWarning("The download page for `{Name}` did not start a download; its tab has been left open", download.FileMetadata.Name);
                 }
 
-                if (outcome is not InAppDownloadOutcome.Unavailable) return outcome is InAppDownloadOutcome.Started;
+                if (outcome is not InAppDownloadOutcome.Unavailable) return new DownloadStart(Started: outcome is InAppDownloadOutcome.Started, Task.CompletedTask);
             }
 
             // Handed to the system browser, where the app can't see what becomes of it. The
             // page is in front of the user either way, so this counts as started.
             _osInterop.OpenUri(downloadUri);
-            return true;
+            return new DownloadStart(Started: true, Task.CompletedTask);
         }
     }
+
+    /// <summary>
+    /// Waits for <paramref name="adding"/> to put the download in the library.
+    /// </summary>
+    private static async Task AddToLibrary(IJobTask<IAddDownloadJob, LibraryFile.ReadOnly> adding)
+    {
+        await adding;
+    }
+
+    /// <summary>
+    /// Waits for <paramref name="adding"/> to put the download in the library, then removes
+    /// the temporary file the download went to and lets go of its <paramref name="claim"/>.
+    /// </summary>
+    private static async Task AddToLibrary(IJobTask<IAddDownloadJob, LibraryFile.ReadOnly> adding, TemporaryPath downloadPath, IDisposable claim)
+    {
+        using (claim)
+        await using (downloadPath)
+        {
+            await adding;
+        }
+    }
+
+    /// <summary>
+    /// Waits for <paramref name="download"/> to finish transferring its file.
+    /// </summary>
+    /// <remarks>
+    /// A transfer that fails isn't thrown from here: the add waiting on it fails along with
+    /// it, and that is where it is reported, once. When the wait is cancelled, the caller
+    /// never gets <paramref name="adding"/>, so it is reported from here instead.
+    /// </remarks>
+    private async Task WaitForTransfer(IJobTask<IJobDefinition<AbsolutePath>, AbsolutePath> download, Task adding, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Transfer(download).WaitAsync(cancellationToken);
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            // reported by the add
+        }
+        catch (Exception)
+        {
+            adding.FireAndForget(_logger);
+            throw;
+        }
+
+        static async Task Transfer(IJobTask<IJobDefinition<AbsolutePath>, AbsolutePath> download) => await download;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="download"/> is in the library now, as opposed to as of some
+    /// earlier snapshot of the database.
+    /// </summary>
+    internal bool IsDownloaded(CollectionDownload.ReadOnly download) => GetStatus(download, _connection.Db).IsDownloaded();
+
+    /// <summary>
+    /// Whether a download of <paramref name="download"/> is already queued or under way, from
+    /// an earlier pass over the collection, so that visiting its page again would only start a
+    /// second copy of it.
+    /// </summary>
+    internal bool IsBeingDownloaded(CollectionDownloadNexusMods.ReadOnly download) => _nexusModsLibrary.IsBeingDownloaded(download.FileUid);
 
     /// <summary>
     /// Returns an observable with the number of downloaded items.
@@ -304,8 +439,9 @@ public class CollectionDownloader
         // One at a time without premium: those downloads are each a download page driven in
         // a tab, and the in-app browser runs one of those at a time whatever this says, so
         // the other workers would only queue up behind it. Keeping the job to one worker is
-        // what keeps the collection in its own order and lets it stop early when the pages
-        // turn out to be producing nothing.
+        // what lets it stop early when the pages turn out to be producing nothing. Each page
+        // only takes as long as it needs to hand its download over; the downloads themselves
+        // then run side by side.
         var userInfo = await _loginManager.GetUserInfoAsync(cancellationToken);
         var maxDegreeOfParallelism = userInfo?.UserRole is UserRole.Premium
             ? _serviceProvider.GetRequiredService<ISettingsManager>().Get<DownloadSettings>().MaxParallelDownloads
@@ -337,6 +473,11 @@ public class CollectionDownloader
             // downloaded before they pressed it stays in the library, and the collection can
             // be downloaded again later, which picks up from what is already there.
             _logger.LogInformation("Downloading `{CollectionName}/{RevisionNumber}` was cancelled", revisionMetadata.Collection.Slug, revisionMetadata.RevisionNumber);
+
+            // Without premium the download pages have handed over far more than is running,
+            // and the rest are still waiting their turn, which nothing on the downloads page
+            // can stop. The ones under way are left to finish, as they always were.
+            _nexusModsLibrary.DropWaitingDownloads();
         }
     }
 
