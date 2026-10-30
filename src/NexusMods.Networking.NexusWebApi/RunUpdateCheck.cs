@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using NexusMods.Abstractions.NexusModsLibrary;
 using NexusMods.Abstractions.NexusWebApi;
@@ -58,32 +59,26 @@ public static class RunUpdateCheck
         // caused by programmer error, so we should log these whenever possible,
         // but they should not cause a critical error; in case it's simply the result
         // of mod removal such as DMCA takedown.
-        
-        // Note(sewer): The semaphore below limits the maximum number of requests to the Nexus API
-        // (UpdateModPage) that can be in transit at any time. i.e., We will process max
-        // 'semaphoreCount' requests at a time. The number specified in the constructor
-        // is the maximum number of requests that can be in transit at any given time.
-        // It is completely arbitrary and can be safely changed. If the API ever adds 
-        // rate limits, this may need tweaking.
-        //
-        // When this code is important is if the user doesn't use the App for a long time,
-        // i.e. past the cache expiry time. Currently, that's 28 days. Past that point,
-        // when checking for an update, all the mod pages will need refreshing; 
-        // which will kick in this rate limiter. Otherwise, outside of that, concurrent
-        // requests here are very unlikely.
-        using var semaphore = new SemaphoreSlim(16);
-        var tasks = new List<Task>();
 
-        // Helper function to process a single mixin with error handling
-        async Task ProcessMixin(SemaphoreSlim sema, PageMetadataMixin mixin, bool isUndetermined)
+        // Note(CE): Every mod page a collection brings in starts out here, since a collection only
+        // says which one of its files it uses: that is hundreds of pages at once, on the first
+        // check after adding one. Pages are done in chunks that share their requests, and the
+        // semaphore limits how many chunks are in transit at any time.
+        using var semaphore = new SemaphoreSlim(MaxParallelChunks);
+        var tasks = new List<Task>();
+        var stopwatch = Stopwatch.StartNew();
+
+        // Helper function to process a chunk of mixins with error handling
+        async Task ProcessChunk(SemaphoreSlim sema, PageMetadataMixin[] mixins, bool isUndetermined)
         {
             var isTaken = false;
             try
             {
                 isTaken = await sema.WaitAsync(Timeout.Infinite, cancellationToken);
-                await UpdateModPage(db, tx,
+                await UpdateModPages(db, tx,
+                    logger,
                     graphQlClient,
-                    mixin,
+                    mixins,
                     cancellationToken
                 );
             }
@@ -95,8 +90,7 @@ public static class RunUpdateCheck
             {
                 if (isUndetermined)
                 {
-                    var id = mixin.GetModPageId();
-                    logger.LogError(e, "Failed to update metadata for Mod (GameID: {Page}, ModId: {ModId})", id.GameId, id.ModId);
+                    logger.LogError(e, "Failed to update metadata for {Count} mods, starting with {ModId}", mixins.Length, mixins[0].GetModPageId().ModId);
                 }
                 else
                 {
@@ -112,47 +106,101 @@ public static class RunUpdateCheck
         }
 
         // Process undetermined items
-        foreach (var mixin in result.UndeterminedItems)
+        foreach (var mixins in result.UndeterminedItems.Chunk(ModsPerChunk))
         {
-            tasks.Add(ProcessMixin(semaphore, mixin, true));
+            tasks.Add(ProcessChunk(semaphore, mixins, true));
         }
 
         // Process out of date items
-        foreach (var mixin in result.OutOfDateItems)
+        foreach (var mixins in result.OutOfDateItems.Chunk(ModsPerChunk))
         {
-            tasks.Add(ProcessMixin(semaphore, mixin, false));
+            tasks.Add(ProcessChunk(semaphore, mixins, false));
         }
 
         // Wait for all tasks to complete
         await Task.WhenAll(tasks);
+
+        logger.LogInformation("Refreshed {Undetermined} undetermined and {OutOfDate} out of date mod pages in {Elapsed}", result.UndeterminedItems.Count, result.OutOfDateItems.Count, stopwatch.Elapsed);
     }
 
-    private static async Task UpdateModPage(
+    /// <summary>
+    /// How many mod pages are handled together. One request reads the mods themselves, and
+    /// another per <see cref="IGraphQlClient.MaxModsPerFilesRequest"/> of them reads their files.
+    /// </summary>
+    internal const int ModsPerChunk = 60;
+
+    /// <summary>
+    /// How many chunks of mod pages are in transit at any time. Each sends one request at a time.
+    /// </summary>
+    private const int MaxParallelChunks = 4;
+
+    private static async Task UpdateModPages(
         IDb db,
         ITransaction tx,
+        ILogger logger,
         IGraphQlClient graphQlClient,
-        PageMetadataMixin mixin,
-        CancellationToken cancellationToken = default)
+        PageMetadataMixin[] mixins,
+        CancellationToken cancellationToken)
     {
-        var uid = mixin.GetModPageId();
-
-        var modResult = await graphQlClient.QueryMod(uid.ModId, uid.GameId, cancellationToken);
+        var modsResult = await graphQlClient.QueryMods(mixins.Select(static mixin => mixin.GetModPageId()).ToArray(), cancellationToken);
         // TODO: handle errors
-        var mod = modResult.AssertHasData();
+        var mods = modsResult.AssertHasData().ToDictionary(static mod => ModUid.FromV2Api(mod.Uid));
 
-        mod.Resolve(db, tx, setFilesTimestamp: true);
-
-        // Update Mod Files
-        var pageEntityId = mixin.GetModPageEntityId();
-
-        var modFilesResult = await graphQlClient.QueryModFiles(uid.ModId, uid.GameId, cancellationToken: cancellationToken);
-        // TODO: handle errors
-        var modFiles = modFilesResult.AssertHasData();
-
-        foreach (var modFile in modFiles)
+        // A page the server didn't send back is one that has been taken down. It keeps what it
+        // has, and is left without a new timestamp so that it is looked at again next time.
+        var found = new List<PageMetadataMixin>(mixins.Length);
+        foreach (var mixin in mixins)
         {
-            modFile.Resolve(db, tx, pageEntityId);
+            if (mods.ContainsKey(mixin.GetModPageId())) found.Add(mixin);
+            else logger.LogWarning("Mod (GameID: {Page}, ModId: {ModId}) no longer exists on the site", mixin.GetModPageId().GameId, mixin.GetModPageId().ModId);
         }
+
+        var files = new List<(PageMetadataMixin Mixin, IModFile[] Files)>(found.Count);
+        foreach (var chunk in found.Chunk(IGraphQlClient.MaxModsPerFilesRequest))
+        {
+            var filesOfChunk = await QueryModFiles(logger, graphQlClient, chunk, cancellationToken);
+            files.AddRange(chunk.Zip(filesOfChunk));
+        }
+
+        // Written only once every answer is in: a page marked as up to date without its files
+        // would stay without them until the mod next changes.
+        foreach (var (mixin, modFiles) in files)
+        {
+            mods[mixin.GetModPageId()].Resolve(db, tx, setFilesTimestamp: true);
+
+            var pageEntityId = mixin.GetModPageEntityId();
+            foreach (var modFile in modFiles)
+            {
+                modFile.Resolve(db, tx, pageEntityId);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Reads the files of each of <paramref name="mixins"/>, in one request if the server will
+    /// take that and otherwise in one for each.
+    /// </summary>
+    private static async ValueTask<IModFile[][]> QueryModFiles(
+        ILogger logger,
+        IGraphQlClient graphQlClient,
+        PageMetadataMixin[] mixins,
+        CancellationToken cancellationToken)
+    {
+        var batchResult = await graphQlClient.QueryModFilesOfMods(mixins.Select(static mixin => mixin.GetModPageId()).ToArray(), cancellationToken);
+        if (batchResult.TryGetData(out var batch)) return batch;
+
+        logger.LogWarning("Unable to read the files of {Count} mods in one request, reading them one at a time: {Result}", mixins.Length, batchResult);
+
+        var files = new IModFile[mixins.Length][];
+        for (var i = 0; i < mixins.Length; i++)
+        {
+            var uid = mixins[i].GetModPageId();
+            var result = await graphQlClient.QueryModFiles(uid.ModId, uid.GameId, cancellationToken);
+            // TODO: handle errors
+            files[i] = result.AssertHasData();
+        }
+
+        return files;
     }
 
     /// <summary>

@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Reactive.Disposables;
 using Avalonia.Threading;
 using JetBrains.Annotations;
@@ -47,19 +46,53 @@ internal sealed class InAppBrowser : IInAppBrowser
     private static readonly TimeSpan SettleDelay = TimeSpan.FromSeconds(1);
 
     /// <summary>
-    /// The least time between one download page being asked for and the next.
+    /// The least time between one download page being asked for and the next, to begin with.
     /// </summary>
     /// <remarks>
-    /// A page hands its link over within moments of starting to load, so without this a
-    /// collection would be paged through as fast as Nexus Mods can answer. This keeps it to a
-    /// pace that is still several times what it used to be.
+    /// None at the moment, for testing, which also means a suspension has nothing to double.
+    /// A page hands its link over within moments of starting to load, so a collection is paged
+    /// through as fast as Nexus Mods can answer, and it answers that by suspending the address:
+    /// at half a second a page, that took 214 pages in a little over two minutes. The limit
+    /// isn't published. Two seconds is the pace of an earlier run of 319 pages that wasn't
+    /// suspended. What a pace costs depends on the files: large ones can't keep up with the
+    /// pages anyway, while a stretch of small ones goes no faster than it.
     /// </remarks>
-    private static readonly TimeSpan MinimumPageInterval = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan MinimumPageInterval = TimeSpan.Zero;
+
+    /// <summary>
+    /// The most <see cref="_pageInterval"/> grows to, however many suspensions there are.
+    /// </summary>
+    private static readonly TimeSpan MaximumPageInterval = TimeSpan.FromSeconds(16);
+
+    /// <summary>
+    /// How long a suspension is taken to last when the notice doesn't say. The one seen so far
+    /// asked for this long.
+    /// </summary>
+    private static readonly TimeSpan AssumedSuspension = TimeSpan.FromMinutes(10);
+
+    /// <summary>
+    /// How much longer than a suspension is asked to last the run stays away for: a request
+    /// that lands just before it lifts gains nothing, and may count against the address.
+    /// </summary>
+    private static readonly TimeSpan SuspensionMargin = TimeSpan.FromSeconds(30);
 
     /// <summary>
     /// When the last download page was asked for. Only touched while holding <see cref="_downloadQueue"/>.
     /// </summary>
     private long _lastPageRequested;
+
+    /// <summary>
+    /// The least time between download pages as of now. Doubled by each suspension and kept for
+    /// as long as the app runs: since the limit isn't published, being suspended is the only
+    /// sign of having gone too fast. Only touched while holding <see cref="_downloadQueue"/>.
+    /// </summary>
+    private TimeSpan _pageInterval = MinimumPageInterval;
+
+    /// <summary>
+    /// When a run of downloads may next ask for a page. Outlives the run, since pressing
+    /// Download again doesn't lift a suspension. Only touched while holding <see cref="_downloadQueue"/>.
+    /// </summary>
+    private DateTimeOffset _suspendedUntil;
 
     /// <summary>
     /// How long a freshly opened driver tab is given to report itself in before the download
@@ -74,6 +107,7 @@ internal sealed class InAppBrowser : IInAppBrowser
     private readonly ILogger<InAppBrowser> _logger;
     private readonly IWindowManager _windowManager;
     private readonly BrowserDownloadTracker _downloadTracker;
+    private readonly TimeProvider _timeProvider;
 
     /// <summary>
     /// Holds the queue to one download at a time; see <see cref="IInAppBrowser.StartDownload"/>.
@@ -86,11 +120,12 @@ internal sealed class InAppBrowser : IInAppBrowser
     /// </summary>
     private int _sessionDepth;
 
-    public InAppBrowser(ILogger<InAppBrowser> logger, IWindowManager windowManager, BrowserDownloadTracker downloadTracker)
+    public InAppBrowser(ILogger<InAppBrowser> logger, IWindowManager windowManager, BrowserDownloadTracker downloadTracker, TimeProvider timeProvider)
     {
         _logger = logger;
         _windowManager = windowManager;
         _downloadTracker = downloadTracker;
+        _timeProvider = timeProvider;
     }
 
     public bool TryOpen(Uri uri, string? title = null, bool closeAfterDownload = false, bool autoStartDownload = false)
@@ -119,69 +154,123 @@ internal sealed class InAppBrowser : IInAppBrowser
         try
         {
             var inSession = Volatile.Read(ref _sessionDepth) > 0;
-            var requestId = _downloadTracker.Add();
 
-            try
+            while (true)
             {
-                var sinceLastPage = Stopwatch.GetElapsedTime(_lastPageRequested);
-                if (_lastPageRequested != 0 && sinceLastPage < MinimumPageInterval)
-                    await Task.Delay(MinimumPageInterval - sinceLastPage, cancellationToken);
+                await WaitForPageTurn(inSession, cancellationToken);
 
-                _lastPageRequested = Stopwatch.GetTimestamp();
-
-                if (!await PointTabAtDownload(uri, title, requestId, inSession, cancellationToken))
-                    return InAppDownloadOutcome.Unavailable;
-
-                var result = await _downloadTracker.WaitForHandoff(requestId, ArmingTimeout, HandoffTimeout, cancellationToken);
-
-                // Chromium only loads pages in a tab that is on screen, so a page that hasn't even
-                // started loading is most often one whose tab the user has moved away from: every
-                // page after it would wait out the same timeout. The tab is shown again -- or a
-                // fresh one opened, if it has gone -- and the page gets one more go.
-                if (result is HandoffResult.NeverArmed && inSession)
-                {
-                    _logger.LogInformation("The page at `{Uri}` didn't start loading within {Timeout}; bringing the download tab back to the front to try it again", uri, ArmingTimeout);
-
-                    if (_downloadTracker.Driver is { } driver)
-                    {
-                        driver.BringToFront();
-                        driver.DriveDownload(uri, title, requestId);
-                    }
-                    else if (!await PointTabAtDownload(uri, title, requestId, inSession, cancellationToken))
-                    {
-                        return InAppDownloadOutcome.Unavailable;
-                    }
-
-                    result = await _downloadTracker.WaitForHandoff(requestId, ArmingTimeout, HandoffTimeout, cancellationToken);
-                }
-
-                switch (result)
-                {
-                    case HandoffResult.HandedOff:
-                        // A tab of its own closes itself now that its download is away; one in
-                        // a session is about to be pointed at the next page instead.
-                        if (!inSession) await Task.Delay(SettleDelay, cancellationToken);
-                        return InAppDownloadOutcome.Started;
-                    case HandoffResult.NothingToDownload:
-                        _logger.LogWarning("The page at `{Uri}` has no download to hand over", uri);
-                        return InAppDownloadOutcome.NotStarted;
-                    case HandoffResult.NeverArmed:
-                        _logger.LogWarning("The page at `{Uri}` didn't start loading within {Timeout}", uri, ArmingTimeout);
-                        return InAppDownloadOutcome.NotStarted;
-                    default:
-                        _logger.LogWarning("No download arrived from `{Uri}` within {Timeout}", uri, HandoffTimeout);
-                        return InAppDownloadOutcome.NotStarted;
-                }
-            }
-            finally
-            {
-                _downloadTracker.Remove(requestId);
+                var outcome = await AskPageForDownload(uri, title, inSession, cancellationToken);
+                if (outcome is not null) return outcome.Value;
             }
         }
         finally
         {
             _downloadQueue.Release();
         }
+    }
+
+    /// <summary>
+    /// Waits until the next download page may be asked for.
+    /// </summary>
+    /// <remarks>
+    /// Only a run of downloads waits out a suspension, as it is what would otherwise keep
+    /// asking. A single download is someone pressing a button, who is better off being shown
+    /// the notice than having nothing happen for ten minutes.
+    /// </remarks>
+    private async ValueTask WaitForPageTurn(bool inSession, CancellationToken cancellationToken)
+    {
+        var suspended = _suspendedUntil - _timeProvider.GetUtcNow();
+        if (inSession && suspended > TimeSpan.Zero)
+            await Task.Delay(suspended, _timeProvider, cancellationToken);
+
+        var sinceLastPage = _timeProvider.GetElapsedTime(_lastPageRequested);
+        if (_lastPageRequested != 0 && sinceLastPage < _pageInterval)
+            await Task.Delay(_pageInterval - sinceLastPage, _timeProvider, cancellationToken);
+    }
+
+    /// <summary>
+    /// Loads the download page and waits for it to hand its download over.
+    /// </summary>
+    /// <returns>Null when the page has to be tried again, once the wait for the next page is over.</returns>
+    private async ValueTask<InAppDownloadOutcome?> AskPageForDownload(Uri uri, string? title, bool inSession, CancellationToken cancellationToken)
+    {
+        var requestId = _downloadTracker.Add();
+
+        try
+        {
+            _lastPageRequested = _timeProvider.GetTimestamp();
+
+            if (!await PointTabAtDownload(uri, title, requestId, inSession, cancellationToken))
+                return InAppDownloadOutcome.Unavailable;
+
+            var result = await _downloadTracker.WaitForHandoff(requestId, ArmingTimeout, HandoffTimeout, cancellationToken);
+
+            // Chromium only loads pages in a tab that is on screen, so a page that hasn't even
+            // started loading is most often one whose tab the user has moved away from: every
+            // page after it would wait out the same timeout. The tab is shown again -- or a
+            // fresh one opened, if it has gone -- and the page gets one more go.
+            if (result is HandoffResult.NeverArmed && inSession)
+            {
+                _logger.LogInformation("The page at `{Uri}` didn't start loading within {Timeout}; bringing the download tab back to the front to try it again", uri, ArmingTimeout);
+
+                _lastPageRequested = _timeProvider.GetTimestamp();
+
+                if (_downloadTracker.Driver is { } driver)
+                {
+                    driver.BringToFront();
+                    driver.DriveDownload(uri, title, requestId);
+                }
+                else if (!await PointTabAtDownload(uri, title, requestId, inSession, cancellationToken))
+                {
+                    return InAppDownloadOutcome.Unavailable;
+                }
+
+                result = await _downloadTracker.WaitForHandoff(requestId, ArmingTimeout, HandoffTimeout, cancellationToken);
+            }
+
+            switch (result)
+            {
+                case HandoffResult.HandedOff:
+                    // A tab of its own closes itself now that its download is away; one in
+                    // a session is about to be pointed at the next page instead.
+                    if (!inSession) await Task.Delay(SettleDelay, _timeProvider, cancellationToken);
+                    return InAppDownloadOutcome.Started;
+                case HandoffResult.Suspended:
+                    NoteSuspension(_downloadTracker.GetRetryAfter(requestId));
+
+                    // The file isn't to blame, so a run tries it again rather than counting it as
+                    // failed. A tab of its own stays on the notice, for the user to read.
+                    return inSession ? null : InAppDownloadOutcome.NotStarted;
+                case HandoffResult.NothingToDownload:
+                    _logger.LogWarning("The page at `{Uri}` has no download to hand over", uri);
+                    return InAppDownloadOutcome.NotStarted;
+                case HandoffResult.NeverArmed:
+                    _logger.LogWarning("The page at `{Uri}` didn't start loading within {Timeout}", uri, ArmingTimeout);
+                    return InAppDownloadOutcome.NotStarted;
+                default:
+                    _logger.LogWarning("No download arrived from `{Uri}` within {Timeout}", uri, HandoffTimeout);
+                    return InAppDownloadOutcome.NotStarted;
+            }
+        }
+        finally
+        {
+            _downloadTracker.Remove(requestId);
+        }
+    }
+
+    /// <summary>
+    /// Holds off asking for pages for as long as Nexus Mods asked, and slows down afterwards.
+    /// </summary>
+    private void NoteSuspension(TimeSpan? retryAfter)
+    {
+        _suspendedUntil = _timeProvider.GetUtcNow() + (retryAfter ?? AssumedSuspension) + SuspensionMargin;
+
+        var doubled = _pageInterval * 2;
+        _pageInterval = doubled < MaximumPageInterval ? doubled : MaximumPageInterval;
+
+        _logger.LogWarning("Nexus Mods has suspended this address for sending too many requests. A run of downloads won't ask for another page until {Until}, then one every {Interval}", _suspendedUntil.ToLocalTime(), _pageInterval);
+
+        _downloadTracker.Driver?.ShowPausedUntil(_suspendedUntil);
     }
 
     /// <summary>
@@ -199,7 +288,7 @@ internal sealed class InAppBrowser : IInAppBrowser
         var driver = _downloadTracker.Driver;
         if (driver is not null)
         {
-            // The tab is already open and on screen, so the page is simply loaded into it.
+            // The tab is already open and on screen, so it simply takes the next page.
             // Not selecting it again is the point: the user is free to look at something
             // else while the run works through the collection.
             driver.DriveDownload(uri, title, requestId);

@@ -14,7 +14,8 @@ namespace NexusMods.App.UI.Pages.Browser;
 internal interface IBrowserDownloadDriver
 {
     /// <summary>
-    /// Points the tab at the next download page.
+    /// Points the tab at the next download page, which it gets the download out of by loading it
+    /// or, once it has a page of the site open, by reading it from there.
     /// </summary>
     /// <param name="uri">The page to load.</param>
     /// <param name="title">Tab title to use until the page reports its own.</param>
@@ -34,6 +35,12 @@ internal interface IBrowserDownloadDriver
     /// moved away from stops getting anywhere until it is shown again.
     /// </remarks>
     void BringToFront();
+
+    /// <summary>
+    /// Says on the tab that the run is waiting until <paramref name="until"/>, until the next
+    /// download page is loaded into it.
+    /// </summary>
+    void ShowPausedUntil(DateTimeOffset until);
 }
 
 /// <summary>
@@ -61,6 +68,11 @@ internal enum HandoffResult
     /// The script was put on the page, but nothing came of it in time.
     /// </summary>
     TimedOut,
+
+    /// <summary>
+    /// Nexus Mods answered that this address has been suspended for sending too many requests.
+    /// </summary>
+    Suspended,
 }
 
 /// <summary>
@@ -94,6 +106,12 @@ internal sealed class BrowserDownloadTracker
     {
         public readonly TaskCompletionSource Armed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public readonly TaskCompletionSource<HandoffResult> Result = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>
+        /// How long the notice asks to stay away for, once <see cref="Result"/> is
+        /// <see cref="HandoffResult.Suspended"/>. Null when it doesn't say.
+        /// </summary>
+        public TimeSpan? RetryAfter;
     }
 
     /// <summary>
@@ -170,6 +188,26 @@ internal sealed class BrowserDownloadTracker
     {
         if (_pending.TryGetValue(requestId, out var pending)) pending.Result.TrySetResult(HandoffResult.NothingToDownload);
     }
+
+    /// <summary>
+    /// Reports that the page loaded for <paramref name="requestId"/> is Nexus Mods' notice
+    /// that this address has been suspended, so the wait can end now.
+    /// </summary>
+    /// <param name="requestId">The download.</param>
+    /// <param name="retryAfter">How long the notice asks to stay away for, null when it doesn't say.</param>
+    public void ReportSuspended(Guid requestId, TimeSpan? retryAfter)
+    {
+        if (!_pending.TryGetValue(requestId, out var pending) || pending.Result.Task.IsCompleted) return;
+
+        pending.RetryAfter = retryAfter;
+        pending.Result.TrySetResult(HandoffResult.Suspended);
+    }
+
+    /// <summary>
+    /// How long the notice that ended the wait for <paramref name="requestId"/> asks to stay
+    /// away for, null when it doesn't say.
+    /// </summary>
+    public TimeSpan? GetRetryAfter(Guid requestId) => _pending.TryGetValue(requestId, out var pending) ? pending.RetryAfter : null;
 
     /// <summary>
     /// Whether <paramref name="requestId"/> is a download something is waiting on right now.

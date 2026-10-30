@@ -107,8 +107,44 @@ public partial class NexusModsLibrary
         if (IsPremium(_serviceProvider)) return new DownloadTurn(turns: null);
 
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, Volatile.Read(ref _waitingDownloads).Token);
-        await _downloadTurns.WaitAsync(cancellation.Token);
+
+        Interlocked.Increment(ref _downloadsWaitingForTurn);
+        try
+        {
+            await _downloadTurns.WaitAsync(cancellation.Token);
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _downloadsWaitingForTurn);
+        }
+
         return new DownloadTurn(_downloadTurns);
+    }
+
+    /// <summary>
+    /// How many downloads can be waiting for their turn before a run of downloads stops asking
+    /// for more of them.
+    /// </summary>
+    /// <remarks>
+    /// Without premium, every file a run asks for means loading a page from the site, and that
+    /// takes far less time than downloading a large file. Left alone, a run gets through its
+    /// pages long before it can use what they hand over: 119 of 214 were still queued when one
+    /// was cancelled, and all of them went to waste. A few are enough to have a file ready
+    /// whenever a download finishes, so this doesn't slow the downloads down.
+    /// </remarks>
+    private const int MaxDownloadsWaitingForTurn = 4;
+
+    private int _downloadsWaitingForTurn;
+
+    /// <summary>
+    /// Waits until a run of downloads has a use for another one.
+    /// </summary>
+    public async ValueTask WaitForRoomInDownloadQueue(CancellationToken cancellationToken)
+    {
+        while (Volatile.Read(ref _downloadsWaitingForTurn) >= MaxDownloadsWaitingForTurn)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(50), cancellationToken);
+        }
     }
 
     /// <summary>

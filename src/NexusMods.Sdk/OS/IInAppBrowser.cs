@@ -41,6 +41,10 @@ public interface IInAppBrowser
     /// a collection's worth of tabs opened together would fight over the foreground and
     /// mostly time out. Waiting here is what turns a list of mods into one download after
     /// another.
+    /// <para/>
+    /// Download pages are paced so as not to send Nexus Mods too many requests. If it suspends
+    /// this address anyway, a download inside a session waits for as long as it asks and then
+    /// tries the page again, which can make this take many minutes.
     /// </remarks>
     /// <param name="uri">The download page to drive.</param>
     /// <param name="title">Tab title to use until the page reports its own.</param>

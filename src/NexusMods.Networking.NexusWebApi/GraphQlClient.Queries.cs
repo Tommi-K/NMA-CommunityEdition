@@ -95,6 +95,18 @@ internal partial class GraphQlClient : IGraphQlClient
         return operationResult.Transform(out GraphQlResult<IMod, NotFound> _, static result => result, result => ExpectOne(result.LegacyMods.Nodes));
     }
 
+    public async ValueTask<GraphQlResult<IMod[]>> QueryMods(IReadOnlyList<ModUid> mods, CancellationToken cancellationToken)
+    {
+        var operationResult = await _client.QueryMods.ExecuteAsync(
+            ids: mods.Select(ToCompositeId).ToArray(),
+            // Without this the server stops at twenty.
+            modCount: mods.Count,
+            cancellationToken: cancellationToken
+        );
+
+        return operationResult.Transform(static result => result.LegacyMods, static page => page.Nodes.ToArray<IMod>());
+    }
+
     public async ValueTask<GraphQlResult<IModFile, NotFound>> QueryModFile(FileId fileId, NexusModsGameId nexusModsGameId, CancellationToken cancellationToken)
     {
         var uid = new FileUid(fileId, nexusModsGameId);
@@ -116,6 +128,42 @@ internal partial class GraphQlClient : IGraphQlClient
         );
 
         return operationResult.Transform(out GraphQlResult<IModFile[], NotFound> _, static result => result.ModFiles, static fileList => fileList.ToArray<IModFile>());
+    }
+
+    public async ValueTask<GraphQlResult<IModFile[][]>> QueryModFilesOfMods(IReadOnlyList<ModUid> mods, CancellationToken cancellationToken)
+    {
+        if (mods.Count is 0 or > IGraphQlClient.MaxModsPerFilesRequest)
+            throw new ArgumentOutOfRangeException(nameof(mods), mods.Count, $"Takes between 1 and {IGraphQlClient.MaxModsPerFilesRequest} mods");
+
+        // The query has a slot for each mod it can take. Any left over ask for the last mod again
+        // and their answers are ignored, which only the last request of a run ever pays for.
+        ModUid Slot(int index) => mods[Math.Min(index, mods.Count - 1)];
+
+        var operationResult = await _client.QueryModFilesOfTenMods.ExecuteAsync(
+            modId0: Slot(0).ModId.ToString(), gameId0: Slot(0).GameId.ToString(),
+            modId1: Slot(1).ModId.ToString(), gameId1: Slot(1).GameId.ToString(),
+            modId2: Slot(2).ModId.ToString(), gameId2: Slot(2).GameId.ToString(),
+            modId3: Slot(3).ModId.ToString(), gameId3: Slot(3).GameId.ToString(),
+            modId4: Slot(4).ModId.ToString(), gameId4: Slot(4).GameId.ToString(),
+            modId5: Slot(5).ModId.ToString(), gameId5: Slot(5).GameId.ToString(),
+            modId6: Slot(6).ModId.ToString(), gameId6: Slot(6).GameId.ToString(),
+            modId7: Slot(7).ModId.ToString(), gameId7: Slot(7).GameId.ToString(),
+            modId8: Slot(8).ModId.ToString(), gameId8: Slot(8).GameId.ToString(),
+            modId9: Slot(9).ModId.ToString(), gameId9: Slot(9).GameId.ToString(),
+            cancellationToken: cancellationToken
+        );
+
+        var count = mods.Count;
+
+        return operationResult.Transform(static result => result, result => new IEnumerable<IModFile>[]
+            {
+                result.Files0, result.Files1, result.Files2, result.Files3, result.Files4,
+                result.Files5, result.Files6, result.Files7, result.Files8, result.Files9,
+            }
+            .Take(count)
+            .Select(static files => files.ToArray())
+            .ToArray()
+        );
     }
 
     public async ValueTask<GraphQlResult<CollectionId, NotFound>> QueryCollectionId(CollectionSlug slug, CancellationToken cancellationToken)

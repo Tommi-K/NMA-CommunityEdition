@@ -372,6 +372,12 @@ public class CollectionDownloader
     internal bool IsBeingDownloaded(CollectionDownloadNexusMods.ReadOnly download) => _nexusModsLibrary.IsBeingDownloaded(download.FileUid);
 
     /// <summary>
+    /// Waits until the next Nexus Mods file of a run is worth asking for; see
+    /// <see cref="NexusModsLibrary.WaitForRoomInDownloadQueue"/>.
+    /// </summary>
+    internal ValueTask WaitForRoomInDownloadQueue(CancellationToken cancellationToken) => _nexusModsLibrary.WaitForRoomInDownloadQueue(cancellationToken);
+
+    /// <summary>
     /// Returns an observable with the number of downloaded items.
     /// </summary>
     public IObservable<int> DownloadedItemCountObservable(CollectionRevisionMetadata.ReadOnly revisionMetadata, ItemType itemType)

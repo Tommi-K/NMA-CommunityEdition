@@ -56,6 +56,14 @@ public partial interface IGraphQlClient
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Queries each of <paramref name="mods"/> in one request. Mods that don't exist are left out
+    /// of the result, which is otherwise in no particular order.
+    /// </summary>
+    ValueTask<GraphQlResult<IMod[]>> QueryMods(
+        IReadOnlyList<ModUid> mods,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Queries a single file.
     /// </summary>
     ValueTask<GraphQlResult<IModFile, NotFound>> QueryModFile(
@@ -70,6 +78,23 @@ public partial interface IGraphQlClient
         ModId modId,
         NexusModsGameId nexusModsGameId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Queries all files of each of <paramref name="mods"/> in one request, of which there can be
+    /// at most <see cref="MaxModsPerFilesRequest"/>.
+    /// </summary>
+    /// <returns>
+    /// The files of each mod, in the order of <paramref name="mods"/>. A mod that doesn't exist
+    /// has none.
+    /// </returns>
+    ValueTask<GraphQlResult<IModFile[][]>> QueryModFilesOfMods(
+        IReadOnlyList<ModUid> mods,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The most mods <see cref="QueryModFilesOfMods"/> takes.
+    /// </summary>
+    const int MaxModsPerFilesRequest = 10;
 
     /// <summary>
     /// Queries the ID of a collection by slug.

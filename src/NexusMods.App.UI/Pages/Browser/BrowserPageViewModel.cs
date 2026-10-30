@@ -25,6 +25,36 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
     private readonly IIpcProtocolHandler[] _protocolHandlers;
     private readonly ILoginManager _loginManager;
     private readonly BrowserDownloadTracker _downloadTracker;
+    private readonly InAppBrowserRequestHandler _requestHandler;
+
+    /// <summary>
+    /// Whether the page is being loaded only to get its download, with something waiting on
+    /// that. Once it is over, as on a tab restored from an earlier session, this is an ordinary
+    /// page the user might be reading. Read on a Chromium thread.
+    /// </summary>
+    private bool IsLoadingForItsDownload => Context is { AutoStartDownload: true, DownloadRequestId: { } requestId } && _downloadTracker.IsTracked(requestId);
+
+    /// <summary>
+    /// How many download pages in a row can fail to be read before the tab goes back to loading
+    /// them for as long as it stays open.
+    /// </summary>
+    private const int MaxReadFailuresInARow = 3;
+
+    /// <inheritdoc/>
+    public Action<string>? PageScriptRunner { get; set; }
+
+    /// <summary>
+    /// Whether this tab has handed over a download, which means it has a page of the site open
+    /// to read the next ones from, and has been through whatever check the site asks of it.
+    /// </summary>
+    private bool _hasPageToReadFrom;
+
+    /// <summary>
+    /// Whether the download page the tab is on now is being read rather than loaded.
+    /// </summary>
+    private bool _isReadingPage;
+
+    private int _readFailuresInARow;
 
     [Reactive] public BrowserPageContext? Context { get; set; }
     [Reactive] public string Address { get; set; } = "about:blank";
@@ -56,7 +86,8 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
 
         // One of each handler per tab: CefGlue disposes them along with the browser they are
         // attached to, so they can't be shared. The ad rules behind them are a shared singleton.
-        BrowserRequestHandler = new InAppBrowserRequestHandler(serviceProvider.GetRequiredService<AdBlocker>(), logger, OpenLinkInNewTab);
+        _requestHandler = new InAppBrowserRequestHandler(serviceProvider.GetRequiredService<AdBlocker>(), logger, OpenLinkInNewTab, () => IsLoadingForItsDownload);
+        BrowserRequestHandler = _requestHandler;
         BrowserLifeSpanHandler = new NewTabLifeSpanHandler(logger, OpenLinkInNewTab);
         BrowserContextMenuHandler = new NewTabContextMenuHandler(logger, OpenLinkInNewTab);
 
@@ -84,8 +115,9 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
 
         this.WhenActivated(disposables =>
         {
+            // A page being read isn't one to go to.
             this.WhenAnyValue(vm => vm.Context)
-                .Where(context => context is not null)
+                .Where(context => context is not null && !_isReadingPage)
                 .Subscribe(context => Address = context!.Uri.ToString())
                 .DisposeWith(disposables);
 
@@ -193,6 +225,55 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
         _downloadTracker.ReportNothingToDownload(requestId);
     }
 
+    /// <inheritdoc/>
+    public void ReportMustLoadPage(string fileId)
+    {
+        if (Context is null || !_isReadingPage) return;
+        if (!string.Equals(GetFileId(Context.Uri), fileId, StringComparison.Ordinal)) return;
+
+        _isReadingPage = false;
+
+        if (++_readFailuresInARow == MaxReadFailuresInARow)
+            _logger.LogWarning("{Count} download pages in a row couldn't be read without loading them, so this tab goes back to loading them", MaxReadFailuresInARow);
+
+        LoadCurrentPage();
+    }
+
+    /// <summary>
+    /// Whether <paramref name="uri"/> can be read from the page that is open in this tab.
+    /// </summary>
+    private bool CanReadPage(Uri uri)
+    {
+        if (!_hasPageToReadFrom || _readFailuresInARow >= MaxReadFailuresInARow || PageScriptRunner is null) return false;
+        if (GetFileId(uri) is null) return false;
+
+        return Uri.TryCreate(Address, UriKind.Absolute, out var current)
+            && current.Scheme.Equals(uri.Scheme, StringComparison.OrdinalIgnoreCase)
+            && current.Host.Equals(uri.Host, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Goes to the page in <see cref="Context"/>, which takes telling the browser to load it
+    /// again when that is where it already is.
+    /// </summary>
+    private void LoadCurrentPage()
+    {
+        var address = Context!.Uri.ToString();
+
+        // The view only navigates when the address actually changes.
+        if (string.Equals(Address, address, StringComparison.Ordinal)) CommandReload.Execute(Unit.Default).Subscribe();
+        else Address = address;
+    }
+
+    /// <inheritdoc/>
+    public void ReportSuspended(string fileId, TimeSpan? retryAfter)
+    {
+        if (Context?.DownloadRequestId is not { } requestId) return;
+        if (!string.Equals(GetFileId(Context.Uri), fileId, StringComparison.Ordinal)) return;
+
+        _downloadTracker.ReportSuspended(requestId, retryAfter);
+    }
+
     /// <summary>
     /// Whether <paramref name="fileId"/>, reported by a page, is the file the tab is
     /// downloading now. Given the benefit of the doubt when either side doesn't say.
@@ -270,8 +351,17 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
         // page never handed anything over.
         if (Context?.DownloadRequestId is { } downloadRequestId)
         {
-            if (IsCurrentFile(GetHandoffFileId(uri))) _downloadTracker.ReportHandoff(downloadRequestId);
-            else _logger.LogInformation("`{Url}` isn't the file this tab is downloading, so it doesn't count as its handoff", url);
+            if (IsCurrentFile(GetHandoffFileId(uri)))
+            {
+                _hasPageToReadFrom = true;
+                if (_isReadingPage) _readFailuresInARow = 0;
+
+                _downloadTracker.ReportHandoff(downloadRequestId);
+            }
+            else
+            {
+                _logger.LogInformation("`{Url}` isn't the file this tab is downloading, so it doesn't count as its handoff", url);
+            }
         }
 
         // A tab opened by a "Download" button exists only to get the download started, so
@@ -345,10 +435,23 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
 
             var isSamePage = string.Equals(Address, uri.ToString(), StringComparison.Ordinal);
 
+            // After the first page of a run the next ones don't have to be loaded at all, which
+            // makes each one a single request; see AutoDownloadScript.BuildPageReader.
+            _isReadingPage = CanReadPage(uri);
+
             // The request id is what the handoff is reported back under, so the context has
             // to carry the new one before the page gets a chance to load. Assigning it is
             // also what moves `Address` on, which is what the view navigates on.
             Context = Context with { Uri = uri, InitialTitle = title, DownloadRequestId = requestId };
+
+            if (_isReadingPage)
+            {
+                _logger.LogInformation("Auto-download reading {Url} without loading it", uri);
+
+                PageScriptRunner!(AutoDownloadScript.BuildPageReader(uri, GetFileId(uri)!));
+                _downloadTracker.ReportArmed(requestId);
+                return;
+            }
 
             // The view only navigates when the address actually changes, so a run that comes
             // back round to a page it has already been on has to be told to load it again.
@@ -357,7 +460,18 @@ public class BrowserPageViewModel : APageViewModel<IBrowserPageViewModel>, IBrow
     }
 
     /// <inheritdoc/>
-    public void CloseDriverTab() => CloseTab();
+    public void CloseDriverTab()
+    {
+        _logger.LogInformation("The download tab skipped {Count} images and the like, and let through: {LetThrough}", _requestHandler.SkippedRequests, _requestHandler.RequestsLetThrough);
+        CloseTab();
+    }
+
+    /// <inheritdoc/>
+    public void ShowPausedUntil(DateTimeOffset until)
+    {
+        // The next page's title replaces this, since loading it sets the context again.
+        Dispatcher.UIThread.Post(() => TabTitle = $"Paused until {until.ToLocalTime():t}");
+    }
 
     /// <inheritdoc/>
     public void BringToFront()

@@ -123,6 +123,8 @@ public class DownloadCollectionJob : IJobDefinitionWithStart<DownloadCollectionJ
             if (HasGivenUp) return;
             if (Downloader.IsBeingDownloaded(download)) return;
 
+            await Downloader.WaitForRoomInDownloadQueue(token);
+
             await StartInPlace(places, download.AsCollectionDownload(), async () =>
             {
                 var start = await Downloader.BeginDownload(download, token);

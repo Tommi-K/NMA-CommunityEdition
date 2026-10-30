@@ -45,6 +45,17 @@ query QueryMod($modId: Int!, $gameId: Int!)
     }
 }
 
+query QueryMods($ids: [CompositeIdInput!]!, $modCount: Int!)
+{
+    legacyMods(ids: $ids, count: $modCount)
+    {
+        nodes
+        {
+            ...Mod
+        }
+    }
+}
+
 query QueryModFile($uid: ID!) {
     modFilesByUid(uids: [$uid]) {
         nodes {
@@ -57,6 +68,33 @@ query QueryModFiles($modId: ID!, $gameId: ID!) {
     modFiles(modId: $modId, gameId: $gameId) {
         ...ModFile
     }
+}
+
+# There is no field that lists the files of several mods, so this asks for ten mods' files in one
+# request by naming the same field ten times. Generated clients need a fixed document, hence the
+# fixed number of slots.
+query QueryModFilesOfTenMods(
+    $modId0: ID!, $gameId0: ID!,
+    $modId1: ID!, $gameId1: ID!,
+    $modId2: ID!, $gameId2: ID!,
+    $modId3: ID!, $gameId3: ID!,
+    $modId4: ID!, $gameId4: ID!,
+    $modId5: ID!, $gameId5: ID!,
+    $modId6: ID!, $gameId6: ID!,
+    $modId7: ID!, $gameId7: ID!,
+    $modId8: ID!, $gameId8: ID!,
+    $modId9: ID!, $gameId9: ID!
+) {
+    files0: modFiles(modId: $modId0, gameId: $gameId0) { ...ModFile }
+    files1: modFiles(modId: $modId1, gameId: $gameId1) { ...ModFile }
+    files2: modFiles(modId: $modId2, gameId: $gameId2) { ...ModFile }
+    files3: modFiles(modId: $modId3, gameId: $gameId3) { ...ModFile }
+    files4: modFiles(modId: $modId4, gameId: $gameId4) { ...ModFile }
+    files5: modFiles(modId: $modId5, gameId: $gameId5) { ...ModFile }
+    files6: modFiles(modId: $modId6, gameId: $gameId6) { ...ModFile }
+    files7: modFiles(modId: $modId7, gameId: $gameId7) { ...ModFile }
+    files8: modFiles(modId: $modId8, gameId: $gameId8) { ...ModFile }
+    files9: modFiles(modId: $modId9, gameId: $gameId9) { ...ModFile }
 }
 
 query QueryCollectionId($collectionSlug: String!) {

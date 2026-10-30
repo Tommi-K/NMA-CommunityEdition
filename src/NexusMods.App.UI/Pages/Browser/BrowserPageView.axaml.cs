@@ -56,6 +56,10 @@ public partial class BrowserPageView : ReactiveUserControl<IBrowserPageViewModel
             this.BindCommand(ViewModel, vm => vm.CommandGoForward, view => view.ForwardButton).DisposeWith(d);
             this.BindCommand(ViewModel, vm => vm.CommandReload, view => view.ReloadButton).DisposeWith(d);
 
+            var viewModel = ViewModel!;
+            viewModel.PageScriptRunner = script => browser.ExecuteJavaScript(script, browser.Address, line: 0);
+            Disposable.Create(viewModel, static vm => vm.PageScriptRunner = null).DisposeWith(d);
+
             ViewModel!.CommandGoBack.Subscribe(_ => browser.GoBack()).DisposeWith(d);
             ViewModel!.CommandGoForward.Subscribe(_ => browser.GoForward()).DisposeWith(d);
             ViewModel!.CommandReload.Subscribe(_ => browser.Reload(ignoreCache: false)).DisposeWith(d);
@@ -166,14 +170,23 @@ public partial class BrowserPageView : ReactiveUserControl<IBrowserPageViewModel
 
         PostToUi(() =>
         {
-            // Only the statuses that mean the file is gone: a Cloudflare check answers 403 and
-            // then loads the real page by itself.
-            if (statusCode is 404 or 410 &&
-                Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
-                BrowserPageViewModel.GetFileId(uri) is { } fileId)
+            if (statusCode >= 400) ReactiveUiExtensions.DefaultLogger.LogInformation("In-app browser page `{Url}` answered {StatusCode}", url, statusCode);
+
+            if (Uri.TryCreate(url, UriKind.Absolute, out var uri) && BrowserPageViewModel.GetFileId(uri) is { } fileId)
             {
-                ViewModel?.ReportNothingToDownload(fileId, $"the page answered {statusCode}");
-                return;
+                // Only the statuses that mean the file is gone: a Cloudflare check answers 403
+                // and then loads the real page by itself.
+                if (statusCode is 404 or 410)
+                {
+                    ViewModel?.ReportNothingToDownload(fileId, $"the page answered {statusCode}");
+                    return;
+                }
+
+                if (statusCode is 429)
+                {
+                    ViewModel?.ReportSuspended(fileId, retryAfter: null);
+                    return;
+                }
             }
 
             StartDownloadWhenReady(url);
@@ -268,6 +281,18 @@ public partial class BrowserPageView : ReactiveUserControl<IBrowserPageViewModel
         {
             var fileId = body[AutoDownloadScript.GaveUpPrefix.Length..].Trim();
             ViewModel?.ReportNothingToDownload(fileId, "the script found nothing to download on it");
+            return;
+        }
+
+        if (AutoDownloadScript.TryParseSuspended(body, out var suspendedFileId, out var retryAfter))
+        {
+            ViewModel?.ReportSuspended(suspendedFileId, retryAfter);
+            return;
+        }
+
+        if (body.StartsWith(AutoDownloadScript.LoadPagePrefix, StringComparison.Ordinal))
+        {
+            ViewModel?.ReportMustLoadPage(body[AutoDownloadScript.LoadPagePrefix.Length..].Trim());
             return;
         }
 

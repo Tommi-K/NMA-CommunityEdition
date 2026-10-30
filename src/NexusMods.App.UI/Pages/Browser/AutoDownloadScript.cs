@@ -1,3 +1,6 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Text.Json;
+
 namespace NexusMods.App.UI.Pages.Browser;
 
 /// <summary>
@@ -49,13 +52,139 @@ internal static class AutoDownloadScript
     /// </remarks>
     public const string GaveUpPrefix = "gave-up ";
 
+    /// <summary>
+    /// Prefix the script uses to report that Nexus Mods answered with its notice that this
+    /// address has been suspended for sending too many requests, after <see cref="LogPrefix"/>.
+    /// Followed by how many seconds the notice asks to stay away for, zero when it doesn't
+    /// say, and the id of the file the page is for.
+    /// </summary>
+    public const string SuspendedPrefix = "suspended ";
+
+    /// <summary>
+    /// Prefix <see cref="BuildPageReader"/>'s script uses to report that reading the page got
+    /// nowhere and it has to be loaded after all, after <see cref="LogPrefix"/>, followed by the
+    /// id of the file the page is for.
+    /// </summary>
+    public const string LoadPagePrefix = "load-page ";
+
     private const string PreferFastPlaceholder = "__PREFER_FAST__";
+    private const string SuspensionPlaceholder = "__SUSPENSION__";
+    private const string PagePlaceholder = "__PAGE__";
+    private const string FileIdPlaceholder = "__FILE_ID__";
 
     /// <summary>
     /// Builds the script. <paramref name="preferFast"/> picks the premium button.
     /// </summary>
     public static string Build(bool preferFast) => Template
+        .Replace(SuspensionPlaceholder, SuspensionFunction)
         .Replace(PreferFastPlaceholder, preferFast ? "true" : "false");
+
+    /// <summary>
+    /// Builds a script that gets the download out of another Nexus Mods page without loading it:
+    /// run in a page that is already open, it asks for the other page's HTML and reads the link
+    /// out of that.
+    /// </summary>
+    /// <remarks>
+    /// Compared with loading the page this is exactly one request: nothing is rendered, none of
+    /// its scripts run and nothing it refers to is fetched. It reports like the page's own
+    /// script does, with <see cref="HandoffPrefix"/>, <see cref="SuspendedPrefix"/> or
+    /// <see cref="GaveUpPrefix"/>, and with <see cref="LoadPagePrefix"/> for anything else.
+    /// </remarks>
+    /// <param name="page">The page, on the same site as the one this runs in.</param>
+    /// <param name="fileId">The file the page is for.</param>
+    public static string BuildPageReader(Uri page, string fileId) => PageReaderTemplate
+        .Replace(SuspensionPlaceholder, SuspensionFunction)
+        .Replace(PagePlaceholder, JsonSerializer.Serialize(page.ToString()))
+        .Replace(FileIdPlaceholder, JsonSerializer.Serialize(fileId));
+
+    /// <summary>
+    /// Reads a report that starts with <see cref="SuspendedPrefix"/>.
+    /// </summary>
+    /// <param name="report">What the script said, after <see cref="LogPrefix"/>.</param>
+    /// <param name="fileId">The file the page is for.</param>
+    /// <param name="retryAfter">How long the notice asks to stay away for, null when it doesn't say.</param>
+    public static bool TryParseSuspended(string report, [NotNullWhen(true)] out string? fileId, out TimeSpan? retryAfter)
+    {
+        fileId = null;
+        retryAfter = null;
+
+        if (!report.StartsWith(SuspendedPrefix, StringComparison.Ordinal)) return false;
+
+        var parts = report[SuspendedPrefix.Length..].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length != 2) return false;
+
+        fileId = parts[1];
+        if (int.TryParse(parts[0], out var seconds) && seconds > 0) retryAfter = TimeSpan.FromSeconds(seconds);
+
+        return true;
+    }
+
+    /// <summary>
+    /// While this address is suspended for sending too many requests, Nexus Mods answers every
+    /// page with a short notice saying for how long. Only a page that short counts, so a mod
+    /// page quoting the same words isn't taken for it. Gives the seconds to stay away for, 0
+    /// when the notice doesn't say, and null when this isn't the notice.
+    /// </summary>
+    private const string SuspensionFunction =
+        """
+        function suspensionIn(text) {
+            if (text.length > 2000) return null;
+            if (!/temporarily suspended/i.test(text) || !/number of requests/i.test(text)) return null;
+
+            var wait = text.match(/try again in (\d+)\s*(second|minute|hour)/i);
+            if (!wait) return 0;
+
+            return parseInt(wait[1], 10) * { second: 1, minute: 60, hour: 3600 }[wait[2].toLowerCase()];
+        }
+        """;
+
+    private const string PageReaderTemplate =
+        """
+        (function () {
+            var MARK = '[nma-autodownload] ';
+            var page = __PAGE__;
+            var wanted = __FILE_ID__;
+
+            __SUSPENSION__
+
+            // A parsed copy has no window to run in: its scripts don't run and nothing it refers
+            // to gets loaded.
+            function read(html) {
+                var doc = new DOMParser().parseFromString(html, 'text/html');
+                var nodes = doc.querySelectorAll('mod-file-download[download-url]');
+
+                for (var i = 0; i < nodes.length; i++) {
+                    var link = nodes[i].getAttribute('download-url') || '';
+                    if (link.indexOf('nxm://') === 0 && nodes[i].getAttribute('file-id') === wanted) return 'handoff ' + link;
+                }
+
+                var notWords = doc.querySelectorAll('script, style, noscript');
+                for (var n = 0; n < notWords.length; n++) notWords[n].remove();
+
+                var text = ((doc.body && doc.body.textContent) || '').replace(/\s+/g, ' ').trim();
+                var suspended = suspensionIn(text);
+
+                return suspended === null ? 'load-page ' + wanted : 'suspended ' + suspended + ' ' + wanted;
+            }
+
+            var abort = new AbortController();
+            var timeout = setTimeout(function () { abort.abort(); }, 15000);
+
+            // Not kept in the cache: this page is never asked for again, and it is the same size
+            // again on disk each time.
+            fetch(page, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'text/html' }, signal: abort.signal })
+                .then(function (response) {
+                    if (response.status === 404 || response.status === 410) return 'gave-up ' + wanted;
+                    if (response.status === 429) return 'suspended 0 ' + wanted;
+                    return response.text().then(read);
+                })
+                .catch(function () { return 'load-page ' + wanted; })
+                .then(function (report) {
+                    clearTimeout(timeout);
+                    console.log(MARK + report);
+                });
+        })();
+        """;
 
     private const string Template =
         """
@@ -78,9 +207,11 @@ internal static class AutoDownloadScript
             ];
 
             var timer = null;
+            var observer = null;
             var finished = false;
             var nextIdSearch = 0;
             var nextLabelSearch = 0;
+            var nextSuspensionCheck = 0;
             var nearMisses = [];
 
             function say(text) {
@@ -134,6 +265,12 @@ internal static class AutoDownloadScript
             function label(el) {
                 return ((el && el.textContent) || '').replace(/\s+/g, ' ').trim();
             }
+
+            function pageText() {
+                return ((document.body && document.body.innerText) || '').replace(/\s+/g, ' ').trim();
+            }
+
+            __SUSPENSION__
 
             function clickable(el) {
                 if (!el) return false;
@@ -384,6 +521,11 @@ internal static class AutoDownloadScript
                 say(note + ' title="' + (document.title || '').slice(0, 70) + '" frames=' +
                     frames.length + ' reachable=' + (docs.length - 1) + ' roots=' + all.length);
 
+                // A page this short is a notice of some kind rather than a mod page, and what
+                // it says is the whole explanation.
+                var text = pageText();
+                if (text.length <= 2000) say(note + ' body="' + text.slice(0, 500) + '"');
+
                 reportShadowHosts(note);
                 emit(note, 'near-miss', nearMisses, 4);
 
@@ -424,6 +566,16 @@ internal static class AutoDownloadScript
             function finish() {
                 finished = true;
                 if (timer !== null) clearInterval(timer);
+                if (observer !== null) observer.disconnect();
+            }
+
+            function handOff(link) {
+                finish();
+                say('handoff ' + link);
+
+                // The link was all this page was loaded for. The images and scripts still to
+                // come would only be more requests counted against this address.
+                window.stop();
             }
 
             // Polled rather than pressed once: the button is commonly disabled behind a
@@ -437,12 +589,24 @@ internal static class AutoDownloadScript
                 // nothing that breaks when the page is redesigned.
                 var link = handoffLink();
                 if (link) {
-                    finish();
-                    say('handoff ' + link);
+                    handOff(link);
                     return;
                 }
 
                 var now = Date.now();
+
+                // Looked for first, and not until the page has been parsed: half a notice may
+                // not say how long for yet.
+                if (document.readyState !== 'loading' && now >= nextSuspensionCheck) {
+                    nextSuspensionCheck = now + 250;
+
+                    var suspended = suspensionIn(pageText());
+                    if (suspended !== null) {
+                        finish();
+                        say('suspended ' + suspended + ' ' + (wanted || ''));
+                        return;
+                    }
+                }
 
                 // Nothing is pressed before the page has finished loading: a control can be in
                 // the markup before the page's scripts have wired it up, and the one press
@@ -488,7 +652,24 @@ internal static class AutoDownloadScript
             }
 
             tick();
-            if (!finished) timer = setInterval(tick, 50);
+
+            if (!finished) {
+                timer = setInterval(tick, 50);
+
+                // The link is near the end of the page, so the parser can reach the end in the
+                // time between two ticks, and the page's own scripts then start up and make
+                // requests of their own. This acts on the link as soon as it has been parsed.
+                if (window.MutationObserver) {
+                    observer = new window.MutationObserver(function () {
+                        if (finished) return;
+
+                        var link = handoffLink();
+                        if (link) handOff(link);
+                    });
+
+                    observer.observe(document, { childList: true, subtree: true });
+                }
+            }
         })();
         """;
 }

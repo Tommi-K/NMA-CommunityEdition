@@ -61,6 +61,16 @@ public sealed class LoginManager : IDisposable, ILoginManager
     private const int InitialRetryDelaySeconds = 3;
 
     /// <summary>
+    /// The least time between two refreshes of UserInfo that come from the window gaining focus.
+    /// </summary>
+    /// <remarks>
+    /// The window's focus changes far more often than the account does: during a collection's
+    /// run this refreshed about every 24 seconds. The refresh is there for someone coming back
+    /// from buying premium in their browser, who still gets it this soon at the latest.
+    /// </remarks>
+    internal static readonly TimeSpan FocusRefreshInterval = TimeSpan.FromMinutes(5);
+
+    /// <summary>
     /// Constructor.
     /// </summary>
     public LoginManager(
@@ -228,13 +238,24 @@ public sealed class LoginManager : IDisposable, ILoginManager
     /// <returns>IDisposable to stop the refresh subscription</returns>
     public IDisposable RefreshOnObservable(Observable<bool> triggerObservable)
     {
-        return triggerObservable
-            .DistinctUntilChanged()
-            .Where(isActive => isActive)
+        return ThrottleFocusRefreshes(triggerObservable, ObservableSystem.DefaultTimeProvider)
             .SubscribeAwait(async (_, cancellationToken) =>
             {
                 await TryRefreshUserInfoSafely(cancellationToken, "window focus");
             }, configureAwait: false);
+    }
+
+    /// <summary>
+    /// When to refresh UserInfo given the window's focus: right away when it has been a while,
+    /// and otherwise once <see cref="FocusRefreshInterval"/> is up, so that the last time the
+    /// window gained focus is never left without a refresh after it.
+    /// </summary>
+    internal static Observable<bool> ThrottleFocusRefreshes(Observable<bool> isActive, TimeProvider timeProvider)
+    {
+        return isActive
+            .DistinctUntilChanged()
+            .Where(static active => active)
+            .ThrottleFirstLast(FocusRefreshInterval, timeProvider);
     }
 
     /// <summary>

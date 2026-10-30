@@ -10,6 +10,7 @@
         <PackageReference Include="Noggog.CSharpExt" />
         <PackageReference Include="ReactiveUI.Fody" />
         <PackageReference Include="Avalonia.Headless" />
+        <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
         <PackageReference Include="Verify.Xunit" />
         <PackageReference Include="Verify.ImageMagick"/>
         <!-- Verify.ImageMagick allows Magick.NET 14.8.1, which has known vulnerabilities: use a fixed version -->

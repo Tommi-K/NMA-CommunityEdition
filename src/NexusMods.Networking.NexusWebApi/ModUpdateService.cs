@@ -18,7 +18,11 @@ namespace NexusMods.Networking.NexusWebApi;
 /// </summary>
 public class ModUpdateService : IModUpdateService, IDisposable
 {
-    internal const int UpdateCheckCooldownSeconds = 30;
+    /// <summary>
+    /// The least time between two update checks. What they read is cached on the server for five
+    /// minutes (see <see cref="RunUpdateCheck"/>), so one any sooner couldn't learn anything new.
+    /// </summary>
+    internal const int UpdateCheckCooldownSeconds = 5 * 60;
 
     private readonly IConnection _connection;
     private readonly INexusApiClient _nexusApiClient;
@@ -155,11 +159,22 @@ public class ModUpdateService : IModUpdateService, IDisposable
         _lastUpdateCheckTime = _timeProvider.GetUtcNow();
 
         // Identify all mod pages needing a refresh
-        var updateCheckResult = await RunUpdateCheck.CheckForModPagesWhichNeedUpdating(
-            _connection.Db, 
-            _nexusApiClient, 
-            _gameIdMappingCache);
-        
+        PerFeedCacheUpdaterResult<PageMetadataMixin> updateCheckResult;
+        try
+        {
+            updateCheckResult = await RunUpdateCheck.CheckForModPagesWhichNeedUpdating(
+                _connection.Db,
+                _nexusApiClient,
+                _gameIdMappingCache);
+        }
+        catch (Exception)
+        {
+            // A check that got no answer has learnt nothing, so it doesn't hold up the next one.
+            _lastUpdateCheckTime = DateTimeOffset.MinValue;
+            throw;
+        }
+
+
         // Fetch the data from the Nexus servers if at least a single item needs updating.
         if (updateCheckResult.AnyItemNeedsUpdate())
         {

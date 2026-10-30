@@ -63,8 +63,8 @@ public interface IBrowserPageViewModel : IPageViewModelInterface
 
     /// <summary>
     /// Handler the embedded browser filters its requests through, dropping the ones
-    /// aimed at known ad and tracker domains. Also opens a ctrl- or middle-clicked link
-    /// in a new tab.
+    /// aimed at known ad and tracker domains, and the images of a page loaded only for its
+    /// download. Also opens a ctrl- or middle-clicked link in a new tab.
     /// </summary>
     public RequestHandler BrowserRequestHandler { get; }
 
@@ -95,6 +95,27 @@ public interface IBrowserPageViewModel : IPageViewModelInterface
     /// said. Ignored when the tab has moved on to another file since.
     /// </summary>
     public void ReportNothingToDownload(string fileId, string reason);
+
+    /// <summary>
+    /// Ends the wait for this tab's download because Nexus Mods answered the page for file
+    /// <paramref name="fileId"/> by saying this address has been suspended for sending too many
+    /// requests. Ignored when the tab has moved on to another file since.
+    /// </summary>
+    /// <param name="fileId">The file the page is for.</param>
+    /// <param name="retryAfter">How long the notice asks to stay away for, null when it doesn't say.</param>
+    public void ReportSuspended(string fileId, TimeSpan? retryAfter);
+
+    /// <summary>
+    /// Runs a script in the page that is open, when there is a view to do it. Set by the view,
+    /// which is what holds the Chromium instance.
+    /// </summary>
+    public Action<string>? PageScriptRunner { get; set; }
+
+    /// <summary>
+    /// Loads the download page for file <paramref name="fileId"/> after all, because reading it
+    /// without loading it got nowhere. Ignored when the tab has moved on to another file since.
+    /// </summary>
+    public void ReportMustLoadPage(string fileId);
 
     /// <summary>
     /// Handles a URL the embedded browser can't navigate to itself, such as an
